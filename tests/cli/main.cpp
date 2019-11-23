@@ -349,6 +349,8 @@ struct cli_fixture
 #ifdef _WIN32
       sockQuit();
 #endif
+      // Intentional delay after app1->shutdown
+      std::cout << "cli_fixture destructor: Intentional delay" << std::end;
    }
 };
 
@@ -1007,6 +1009,8 @@ BOOST_AUTO_TEST_CASE( cli_multisig_transaction )
       throw;
    }
    app1->shutdown();
+   // Intentional delay after app1->shutdown
+   std::cout << "cli_multisig_transaction conclusion: Intentional delay" << std::end;
 }
 
 graphene::wallet::plain_keys decrypt_keys( const std::string& password, const vector<char>& cipher_keys )
@@ -1231,6 +1235,8 @@ BOOST_AUTO_TEST_CASE( cli_create_htlc )
       throw;
    }
    app1->shutdown();
+   // Intentional delay after app1->shutdown
+   std::cout << "cli_create_htlc conclusion: Intentional delay" << std::end;
 }
 
 static string encapsulate( const graphene::wallet::signed_message& msg )
