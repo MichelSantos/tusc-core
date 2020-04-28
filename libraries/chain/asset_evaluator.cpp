@@ -976,7 +976,7 @@ void_result asset_claim_fees_evaluator::do_apply( const asset_claim_fees_operati
          _addo.accumulated_fees -= o.amount_to_claim.amount;
       });
    } else {
-      FC_ASSERT( o.amount_to_claim.amount <= ddo.accumulated_collateral_fees, "Attempt to claim more fees than have accumulated", ("ddo",ddo) );
+      FC_ASSERT( o.amount_to_claim.amount <= ddo.accumulated_collateral_fees, "Attempt to claim more collateral fees than have accumulated", ("ddo",ddo) );
       d.modify( ddo, [&]( asset_dynamic_data_object& _addo  ) {
          _addo.accumulated_collateral_fees -= o.amount_to_claim.amount;
       });
