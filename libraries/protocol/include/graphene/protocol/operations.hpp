@@ -42,6 +42,7 @@
 #include <graphene/protocol/witness.hpp>
 #include <graphene/protocol/worker.hpp>
 #include <graphene/protocol/htlc.hpp>
+#include <graphene/protocol/nft.hpp>
 
 namespace graphene { namespace protocol {
 
@@ -114,7 +115,8 @@ namespace graphene { namespace protocol {
             /* 60 */ liquidity_pool_delete_operation,
             /* 61 */ liquidity_pool_deposit_operation,
             /* 62 */ liquidity_pool_withdraw_operation,
-            /* 63 */ liquidity_pool_exchange_operation
+            /* 63 */ liquidity_pool_exchange_operation,
+            /* 64 */ nft_series_create_operation
          > operation;
 
    /// @} // operations group

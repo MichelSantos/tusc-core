@@ -54,6 +54,7 @@ struct hardfork_visitor {
                                         liquidity_pool_deposit_operation,
                                         liquidity_pool_withdraw_operation,
                                         liquidity_pool_exchange_operation >;
+   using nft_m1_ops = TL::list< nft_series_create_operation >;
    fc::time_point_sec now;
 
    hardfork_visitor(fc::time_point_sec now) : now(now) {}
@@ -72,6 +73,9 @@ struct hardfork_visitor {
    template<typename Op>
    std::enable_if_t<TL::contains<liquidity_pool_ops, Op>(), bool>
    visit() { return HARDFORK_LIQUIDITY_POOL_PASSED(now); }
+   template<typename Op>
+   std::enable_if_t<TL::contains<nft_m1_ops, Op>(), bool>
+   visit() { return HARDFORK_NFT_M1_PASSED(now); }
    /// @}
 
    /// typelist::runtime::dispatch adaptor

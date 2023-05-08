@@ -31,7 +31,8 @@ list(APPEND SOURCES account.cpp
                     types.cpp
                     withdraw_permission.cpp
                     worker.cpp
-                    htlc.cpp)
+                    htlc.cpp
+                    nft.cpp)
 
 
 list(APPEND CUSTOM_AUTHS_FILES

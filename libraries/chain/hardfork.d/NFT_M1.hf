@@ -1,0 +1,5 @@
+// NFT Milestone 1 (M1) hardfork check
+#ifndef HARDFORK_NFT_M1_TIME
+#define HARDFORK_NFT_M1_TIME (fc::time_point_sec( 1683547200 )) // Monday, May 8, 2023 12:00:00 UTC
+#define HARDFORK_NFT_M1_PASSED(now) (now >= HARDFORK_NFT_M1_TIME)
+#endif
