@@ -49,6 +49,7 @@
 #include <graphene/chain/witness_schedule_object.hpp>
 #include <graphene/chain/worker_object.hpp>
 #include <graphene/chain/htlc_object.hpp>
+#include <graphene/chain/nft_object.hpp>
 #include <graphene/chain/custom_authority_object.hpp>
 
 #include <graphene/chain/account_evaluator.hpp>
@@ -162,6 +163,7 @@ void database::initialize_indexes()
    add_index< primary_index< custom_authority_index> >();
    add_index< primary_index<ticket_index> >();
    add_index< primary_index<liquidity_pool_index> >();
+   add_index< primary_index<nft_series_index> >();
 
    //Implementation object indexes
    add_index< primary_index<transaction_index                             > >();

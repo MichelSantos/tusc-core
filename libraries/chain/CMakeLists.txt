@@ -63,6 +63,7 @@ add_library( graphene_chain
              proposal_object.cpp
              vesting_balance_object.cpp
              ticket_object.cpp
+             nft_object.cpp
              small_objects.cpp
 
              block_database.cpp
