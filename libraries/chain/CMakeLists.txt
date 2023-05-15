@@ -55,6 +55,7 @@ add_library( graphene_chain
              special_authority_evaluation.cpp
              custom_authority_evaluator.cpp
              buyback.cpp
+             nft_evaluator.cpp
 
              account_object.cpp
              asset_object.cpp

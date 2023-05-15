@@ -69,6 +69,7 @@
 #include <graphene/chain/witness_evaluator.hpp>
 #include <graphene/chain/worker_evaluator.hpp>
 #include <graphene/chain/htlc_evaluator.hpp>
+#include <graphene/chain/nft_evaluator.hpp>
 #include <graphene/chain/custom_authority_evaluator.hpp>
 
 #include <fc/crypto/digest.hpp>
@@ -137,6 +138,7 @@ void database::initialize_evaluators()
    register_evaluator<liquidity_pool_deposit_evaluator>();
    register_evaluator<liquidity_pool_withdraw_evaluator>();
    register_evaluator<liquidity_pool_exchange_evaluator>();
+   register_evaluator<nft_series_create_evaluator>();
 }
 
 void database::initialize_indexes()
