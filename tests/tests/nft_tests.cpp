@@ -245,4 +245,76 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_invalid_a ) {
    } FC_LOG_AND_RETHROW()
 }
 
+/**
+ * Test the rejection of a series creation prior to the hardfork
+ * Test the rejection of a series creation in a proposal prior to the hardfork
+ */
+BOOST_AUTO_TEST_CASE( nft_series_creation_before_hardfork ) {
+   try {
+      // Initialize
+      ACTORS((alice)(bob));
+      int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, alice_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, bob_id, graphene::chain::asset(init_balance));
+
+      // Advance to before the hardfork time
+      generate_blocks(HARDFORK_NFT_M1_TIME - 100);
+
+      // Alice creates an asset
+      const string series_name = "SERIESA";
+      const asset_object &pre_existing_asset = create_user_issued_asset(series_name, alice_id(db), 0);
+      const asset_id_type pre_existing_asset_id = pre_existing_asset.id;
+
+      // Reject series creation before the hardfork
+      // Alice attempts an valid series creation creation with Alice's asset
+      BOOST_TEST_MESSAGE("Alice is attempting to create an NFT Series with Alice's asset");
+      graphene::chain::nft_series_create_operation create_op;
+      create_op.issuer = alice_id;
+      create_op.asset_id = pre_existing_asset_id;
+      create_op.beneficiary = alice_id;
+      create_op.manager = alice_id;
+      create_op.royalty_fee_centipercent = 0;
+      trx.clear();
+      trx.operations.push_back(create_op);
+      sign(trx, alice_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "not yet enabled");
+
+      // Reject series creation in a proposal before the hardfork
+      {
+         proposal_create_operation pop;
+         pop.review_period_seconds = 86400;
+         uint32_t buffer_seconds = 60 * 60;
+         pop.expiration_time = db.head_block_time() + *pop.review_period_seconds + buffer_seconds;
+         pop.fee_paying_account = GRAPHENE_TEMP_ACCOUNT;
+         pop.proposed_ops.emplace_back(create_op);
+
+         trx.clear();
+         trx.operations.push_back(pop);
+         // sign(trx, alice_private_key);
+         REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Not allowed until");
+      }
+
+      // Advance to after the hardfork time
+      generate_blocks(HARDFORK_NFT_M1_TIME);
+      trx.clear();
+      set_expiration(db, trx);
+
+      // Attempt a proposal with an embedded series creation
+      {
+         proposal_create_operation pop;
+         pop.review_period_seconds = 86400;
+         uint32_t buffer_seconds = 60 * 60;
+         pop.expiration_time = db.head_block_time() + *pop.review_period_seconds + buffer_seconds;
+         pop.fee_paying_account = GRAPHENE_TEMP_ACCOUNT;
+         pop.proposed_ops.emplace_back(create_op);
+
+         trx.clear();
+         trx.operations.push_back(pop);
+         // sign(trx, alice_private_key);
+         PUSH_TX(db, trx);
+      }
+
+   } FC_LOG_AND_RETHROW()
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -32,6 +32,10 @@ namespace graphene {
          try {
             const graphene::chain::database& d = db();
 
+            // Reject any activity before the hardfork time
+            auto now = d.head_block_time();
+            FC_ASSERT(HARDFORK_NFT_M1_PASSED(now), "NFT Series Creation are not yet enabled");
+
             // Verify the royalty fee percentage
             FC_ASSERT(0 <= op.royalty_fee_centipercent,
                       "NFT Series Royalty Fee Percentage should not be negative");

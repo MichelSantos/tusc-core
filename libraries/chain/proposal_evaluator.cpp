@@ -159,6 +159,10 @@ struct proposal_operation_hardfork_visitor
          FC_ASSERT(!op.new_parameters.current_fees->exists<liquidity_pool_exchange_operation>(),
                    "Unable to define fees for liquidity pool operations prior to the LP hardfork");
       }
+      if (!HARDFORK_NFT_M1_PASSED(block_time)) {
+         FC_ASSERT(!op.new_parameters.current_fees->exists<nft_series_create_operation>(),
+                   "Unable to define fees for NFT operations prior to the NFT Milestone 1 hardfork");
+      }
    }
    void operator()(const graphene::chain::htlc_create_operation &op) const {
       FC_ASSERT( block_time >= HARDFORK_CORE_1468_TIME, "Not allowed until hardfork 1468" );
@@ -208,6 +212,9 @@ struct proposal_operation_hardfork_visitor
    }
    void operator()(const graphene::chain::liquidity_pool_exchange_operation &op) const {
       FC_ASSERT( HARDFORK_LIQUIDITY_POOL_PASSED(block_time), "Not allowed until the LP hardfork" );
+   }
+   void operator()(const graphene::chain::nft_series_create_operation &op) const {
+      FC_ASSERT( HARDFORK_NFT_M1_PASSED(block_time), "Not allowed until the NFT Milestone 1 hardfork" );
    }
 
    // loop and self visit in proposals
