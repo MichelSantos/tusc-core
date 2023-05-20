@@ -340,6 +340,10 @@ struct get_impacted_account_visitor
       _impacted.insert( op.fee_payer() ); // Issuer
       _impacted.insert( op.beneficiary );
    }
+   void operator()( const nft_mint_operation& op )
+   {
+      _impacted.insert( op.fee_payer() ); // Issuer
+   }
 };
 
 } // namespace detail

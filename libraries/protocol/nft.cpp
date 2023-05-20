@@ -43,8 +43,10 @@ namespace graphene {
          const asset_id_type &core = asset_id_type();
 
          FC_ASSERT(fee.amount >= 0, "Fee amount should not be negative");
+         FC_ASSERT(fee.asset_id == core, "The fee should be paid in core asset");
 
-         FC_ASSERT(asset_id != core, "The token to may not be the core token");
+         FC_ASSERT(asset_id != core, "The token to mint may not be the core token");
+         FC_ASSERT(subdivisions > 0, "The amount of subdivisions to mint should be positive");
 
          FC_ASSERT(min_price_per_subdivision.amount >= 0,
                    "The minimum price per subdivision should not be negative");
@@ -52,15 +54,18 @@ namespace graphene {
                    "The minimum price per subdivision should be denominated in the core asset");
 
          FC_ASSERT(req_backing_per_subdivision.amount >= 0,
-                   "The backing per subdivision should not be negative");
+                   "The required backing per subdivision should not be negative");
          FC_ASSERT(req_backing_per_subdivision.asset_id == core,
-                   "The backing per subdivision should be denominated in the core asset");
+                   "The required backing per subdivision should be denominated in the core asset");
 
          FC_ASSERT(req_backing_per_subdivision.amount <= min_price_per_subdivision.amount,
-                   "The backing per subdivision should not exceed the minimum price per subdivision");
+                   "The required backing per subdivision should not exceed the minimum price per subdivision");
       }
    }
 }
 
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation::fee_parameters_type )
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation )
+
+GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation::fee_parameters_type )
+GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation )

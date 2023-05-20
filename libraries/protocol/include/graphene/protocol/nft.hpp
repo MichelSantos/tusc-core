@@ -70,6 +70,45 @@ namespace graphene {
          account_id_type fee_payer() const { return issuer; }
 
       };
+
+      struct nft_mint_operation : public base_operation {
+         struct fee_parameters_type {
+            uint64_t fee = 10 * GRAPHENE_BLOCKCHAIN_PRECISION;
+         };
+
+         /// Paid to the network
+         asset fee;
+
+         /// This account must sign and pay the fee for this operation
+         /// This account must also be the Series Issuer.
+         account_id_type issuer;
+
+         /// Existing asset type that will be "minted" into the inventory
+         asset_id_type asset_id;
+
+         /// Subdivision to mint
+         share_type subdivisions;
+
+         /// Minimum price per subdivision
+         asset min_price_per_subdivision;
+
+         /// Required backing per subdivision
+         asset req_backing_per_subdivision;
+
+         /// for future expansion
+         extensions_type extensions;
+
+         /***
+          * @brief Perform simple validation of this object
+          */
+         void validate() const;
+
+         /**
+          * @brief Who will pay the fee
+          */
+         account_id_type fee_payer() const { return issuer; }
+
+      };
    }
 }
 
@@ -80,5 +119,15 @@ FC_REFLECT( graphene::protocol::nft_series_create_operation,
 (fee)(issuer)(asset_id)(royalty_fee_centipercent)(beneficiary)(manager)(extensions)
 )
 
+FC_REFLECT( graphene::protocol::nft_mint_operation::fee_parameters_type, (fee)
+)
+
+FC_REFLECT( graphene::protocol::nft_mint_operation,
+(fee)(issuer)(asset_id)(subdivisions)(min_price_per_subdivision)(req_backing_per_subdivision)(extensions)
+)
+
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation )
+
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation::fee_parameters_type )
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation )
