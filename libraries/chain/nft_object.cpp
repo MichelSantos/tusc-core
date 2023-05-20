@@ -26,3 +26,4 @@
 using namespace graphene::chain;
 
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::chain::nft_series_object )
+GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::chain::nft_token_object )

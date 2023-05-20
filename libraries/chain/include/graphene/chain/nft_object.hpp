@@ -82,10 +82,69 @@ namespace graphene {
       > nft_series_multi_index_type;
       typedef generic_index<nft_series_object, nft_series_multi_index_type> nft_series_index;
 
+
+      /**
+       *  @brief Tracks a token
+       *  @ingroup object
+       *  @ingroup implementation
+       *
+       *  This object exists as an implementation detail and its ID should never be referenced by
+       *  a blockchain operation.
+       */
+      class nft_token_object : public abstract_object<nft_token_object> {
+      public:
+         static constexpr uint8_t space_id = implementation_ids;
+         static constexpr uint8_t type_id = impl_nft_token_object_type; // Indirectly defined in graphene/chain/types.hpp
+
+         /// Asset ID of the associated token
+         asset_id_type token_id;
+
+         /// Name of the associated token
+         string token_name; // Duplicative of the symbol name from the associated asset
+
+         /// Asset ID of the associated series
+         asset_id_type series_id;
+
+         /// Minimum price per subdivision
+         asset min_price_per_subdivision;
+
+         /// Required backing per subdivision
+         asset req_backing_per_subdivision;
+
+         /// Initial amount of token subdivisions in Series Inventory
+         /// amount_in_inventory + amount_in_circulation + amount_burned should equal amount_minted
+         share_type amount_minted;
+
+         /// Current amount of token subdivisions in Series Inventory
+         share_type amount_in_inventory;
+
+         /// Amount of token that has been burned
+         share_type amount_burned;
+
+         /// Current amount of token subdivisions in Series Inventory offered for Primary Sale
+         share_type amount_on_primary_sale;
+
+         /// Current backing behind all token subdivisions
+         /// Should equal amount_in_circulation * req_backing_per_subdivision in subdivisions of the req_backing_per_subdivision
+         asset current_backing;
+      };
+
+      struct by_nft_token_name;
+      struct by_nft_token_asset_id;
+      typedef multi_index_container<
+         nft_token_object,
+         indexed_by<
+            ordered_unique< tag<by_id>, member< object, object_id_type, &object::id > >,
+            ordered_unique< tag<by_nft_token_name>, member<nft_token_object, string, &nft_token_object::token_name> >,
+            ordered_unique< tag<by_nft_token_asset_id>, member<nft_token_object, asset_id_type, &nft_token_object::token_id> >
+         >
+      > nft_token_multi_index_type;
+      typedef generic_index<nft_token_object, nft_token_multi_index_type> nft_token_index;
    }
 } // graphene::chain
 
 MAP_OBJECT_ID_TO_TYPE(graphene::chain::nft_series_object)
+MAP_OBJECT_ID_TO_TYPE(graphene::chain::nft_token_object)
 
 FC_REFLECT_DERIVED( graphene::chain::nft_series_object, (graphene::db::object),
                     (series_name)
@@ -95,4 +154,18 @@ FC_REFLECT_DERIVED( graphene::chain::nft_series_object, (graphene::db::object),
                     (manager)
                   )
 
+FC_REFLECT_DERIVED( graphene::chain::nft_token_object, (graphene::db::object),
+                    (token_id)
+                    (token_name)
+                    (series_id)
+                    (min_price_per_subdivision)
+                    (req_backing_per_subdivision)
+                    (amount_minted)
+                    (amount_in_inventory)
+                    (amount_burned)
+                    (amount_on_primary_sale)
+                    (current_backing)
+)
+
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::chain::nft_series_object )
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::chain::nft_token_object )

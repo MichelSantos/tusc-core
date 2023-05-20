@@ -522,7 +522,9 @@ void get_relevant_accounts( const object* obj, flat_set<account_id_type>& accoun
               break;
            } case impl_nft_series_object_type: {
               break;
-          }
+           } case impl_nft_token_object_type: {
+              break;
+           }
       }
    }
 } // end get_relevant_accounts( const object* obj, flat_set<account_id_type>& accounts )

@@ -166,6 +166,7 @@ void database::initialize_indexes()
    add_index< primary_index<ticket_index> >();
    add_index< primary_index<liquidity_pool_index> >();
    add_index< primary_index<nft_series_index> >();
+   add_index< primary_index<nft_token_index> >();
 
    //Implementation object indexes
    add_index< primary_index<transaction_index                             > >();
