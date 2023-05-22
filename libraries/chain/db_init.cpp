@@ -139,6 +139,7 @@ void database::initialize_evaluators()
    register_evaluator<liquidity_pool_withdraw_evaluator>();
    register_evaluator<liquidity_pool_exchange_evaluator>();
    register_evaluator<nft_series_create_evaluator>();
+   register_evaluator<nft_mint_evaluator>();
 }
 
 void database::initialize_indexes()

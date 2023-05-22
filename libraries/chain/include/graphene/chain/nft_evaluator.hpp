@@ -40,5 +40,18 @@ namespace graphene {
          const asset_object* asset_to_associate = nullptr;
       };
 
+      class nft_mint_evaluator : public evaluator<nft_mint_evaluator> {
+      public:
+         typedef nft_mint_operation operation_type;
+
+         void_result do_evaluate(const nft_mint_operation &o);
+
+         object_id_type do_apply(const nft_mint_operation &o);
+
+         const asset_object* token_to_associate = nullptr;
+         const asset_object* series_to_associate = nullptr;
+         const asset_dynamic_data_object* token_dyn_data = nullptr;
+      };
+
    } // namespace graphene
 } // namespace graphene
