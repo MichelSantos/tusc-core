@@ -40,6 +40,7 @@
 #include <graphene/chain/witness_object.hpp>
 #include <graphene/chain/worker_object.hpp>
 #include <graphene/chain/htlc_object.hpp>
+#include <graphene/chain/nft_object.hpp>
 #include <graphene/chain/proposal_object.hpp>
 #include <graphene/chain/hardfork_visitor.hpp>
 
@@ -563,11 +564,22 @@ void database_fixture_base::verify_asset_supplies( const database& db )
       total_balances[itr->transfer.asset_id] += itr->transfer.amount;
    }
 
+   // NFT
+   for( const nft_token_object& token_obj : db.get_index_type<nft_token_index>().indices() ) {
+      // Tokens in Series Inventory
+      total_balances[token_obj.token_id] += token_obj.amount_in_inventory;
+
+      // Backing behind a token
+      total_balances[token_obj.current_backing.asset_id] += token_obj.current_backing.amount;
+   }
+
+   // Check the supply of non-core assets
    for( const asset_object& asset_obj : db.get_index_type<asset_index>().indices() )
    {
       BOOST_CHECK_EQUAL(total_balances[asset_obj.id].value, asset_obj.dynamic_asset_data_id(db).current_supply.value);
    }
 
+   // Check the supply of core assets
    BOOST_CHECK_EQUAL( core_in_orders.value , reported_core_in_orders.value );
    BOOST_CHECK_EQUAL( core_inactive.value , reported_core_inactive.value );
    BOOST_CHECK_EQUAL( core_pob.value , reported_core_pob.value );
