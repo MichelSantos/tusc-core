@@ -602,4 +602,83 @@ BOOST_AUTO_TEST_CASE( asset_name_test )
    }
 }
 
+/**
+ * Test asset creation with different maximum supplies
+ * should be reflected in both:
+ * the asset_object.common_options.initial_max_supply and
+ * asset's dynamic_data current_max_supply
+ */
+BOOST_AUTO_TEST_CASE(max_supplies) {
+   try {
+      // Initialize
+      ACTOR(alice);
+      BOOST_TEST_MESSAGE( "Testing maximum supplies" );
+
+      ///
+      /// Asset #1
+      ///
+      // Create asset
+      const string asset_1_name = "ASSET1";
+      const asset_object &asset_1_obj = create_user_issued_asset(asset_1_name, alice_id(db), 0, 1000000, 2);
+
+      // Test
+      const asset_dynamic_data_object& asset_1_dd = asset_1_obj.dynamic_data(db);
+      BOOST_CHECK_EQUAL(asset_1_obj.precision, 2);
+      BOOST_CHECK_EQUAL(asset_1_dd.current_max_supply.value, 1000000);
+      BOOST_CHECK_EQUAL(asset_1_obj.options.initial_max_supply.value, 1000000);
+
+      ///
+      /// Asset #2
+      ///
+      // Create asset
+      const string asset_2_name = "ASSET2";
+      const asset_object &asset_2_obj = create_user_issued_asset(asset_2_name, alice_id(db), 0, 3000, 5);
+
+      // Test
+      const asset_dynamic_data_object& asset_2_dd = asset_2_obj.dynamic_data(db);
+      BOOST_CHECK_EQUAL(asset_2_obj.precision, 5);
+      BOOST_CHECK_EQUAL(asset_2_dd.current_max_supply.value, 3000);
+      BOOST_CHECK_EQUAL(asset_2_obj.options.initial_max_supply.value, 3000);
+
+      ///
+      /// Asset #3
+      ///
+      // Create asset
+      const string asset_3_name = "ASSET3";
+      const asset_object &asset_3_obj = create_user_issued_asset(asset_3_name, alice_id(db), 0, 1234567890, 3);
+
+      // Test
+      const asset_dynamic_data_object& asset_3_dd = asset_3_obj.dynamic_data(db);
+      BOOST_CHECK_EQUAL(asset_3_obj.precision, 3);
+      BOOST_CHECK_EQUAL(asset_3_dd.current_max_supply.value, 1234567890);
+      BOOST_CHECK_EQUAL(asset_3_obj.options.initial_max_supply.value, 1234567890);
+
+      ///
+      /// Test again
+      ///
+      generate_block();
+      asset_object a;
+      asset_dynamic_data_object addo;
+
+      a = get_asset(asset_1_name);
+      addo = a.dynamic_data(db);
+      BOOST_CHECK_EQUAL(a.precision, 2);
+      BOOST_CHECK_EQUAL(a.options.initial_max_supply.value, 1000000);
+      BOOST_CHECK_EQUAL(addo.current_max_supply.value, 1000000);
+
+      a = get_asset(asset_2_name);
+      addo = a.dynamic_data(db);
+      BOOST_CHECK_EQUAL(a.precision, 5);
+      BOOST_CHECK_EQUAL(a.options.initial_max_supply.value, 3000);
+      BOOST_CHECK_EQUAL(addo.current_max_supply.value, 3000);
+
+      a = get_asset(asset_3_name);
+      addo = a.dynamic_data(db);
+      BOOST_CHECK_EQUAL(a.precision, 3);
+      BOOST_CHECK_EQUAL(a.options.initial_max_supply.value, 1234567890);
+      BOOST_CHECK_EQUAL(addo.current_max_supply.value, 1234567890);
+
+   } FC_LOG_AND_RETHROW()
+}
+
 BOOST_AUTO_TEST_SUITE_END()

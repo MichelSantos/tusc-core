@@ -335,6 +335,11 @@ struct database_fixture_base {
                                        uint16_t precision = GRAPHENE_BLOCKCHAIN_PRECISION_DIGITS,
                                        asset_id_type backing_asset = {});
    const asset_object& create_user_issued_asset( const string& name );
+   const asset_object& create_user_issued_asset(const string &name,
+                                                const account_object &issuer,
+                                                uint16_t flags,
+                                                const uint64_t max_supply,
+                                                const uint8_t precision);
    const asset_object& create_user_issued_asset( const string& name,
                                                  const account_object& issuer,
                                                  uint16_t flags,

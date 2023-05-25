@@ -239,10 +239,11 @@ object_id_type asset_create_evaluator::do_apply( const asset_create_operation& o
 
    bool hf_429 = fee_is_odd && d.head_block_time() > HARDFORK_CORE_429_TIME;
 
+   const share_type &initial_max_supply = op.common_options.initial_max_supply;
    const asset_dynamic_data_object& dyn_asset =
-      d.create<asset_dynamic_data_object>( [hf_429,this]( asset_dynamic_data_object& a ) {
+      d.create<asset_dynamic_data_object>( [hf_429,this,&initial_max_supply]( asset_dynamic_data_object& a ) {
          a.current_supply = 0;
-         a.current_max_supply = GRAPHENE_INITIAL_MAX_SHARE_SUPPLY;
+         a.current_max_supply = initial_max_supply; // Use the maximum supply provided by the operation
          a.fee_pool = core_fee_paid - (hf_429 ? 1 : 0);
       });
 
