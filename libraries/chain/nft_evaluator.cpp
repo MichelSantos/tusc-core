@@ -124,6 +124,10 @@ namespace graphene {
          try {
             const graphene::chain::database& d = db();
 
+            // Reject any activity before the hardfork time
+            auto now = d.head_block_time();
+            FC_ASSERT(HARDFORK_NFT_M1_PASSED(now), "NFT Minting is not yet enabled");
+
             // Verify the existence of the associated asset
             const asset_object &t = op.asset_id(d);
             token_to_associate = &t;

@@ -821,4 +821,60 @@ BOOST_AUTO_TEST_CASE( nft_minting_invalid_a ) {
    } FC_LOG_AND_RETHROW()
 }
 
+
+/**
+ * Test the rejection of minting prior to the hardfork
+ * Test the rejection of minting prior to the hardfork
+ */
+BOOST_AUTO_TEST_CASE( nft_minting_before_hardfork ) {
+   try {
+      // Initialize
+      ACTORS((alice));
+      int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, alice_id, graphene::chain::asset(init_balance));
+      const asset_id_type core_id = asset_id_type();
+      graphene::chain::nft_mint_operation mint_op;
+
+      // Advance to before the hardfork time
+      generate_blocks(HARDFORK_NFT_M1_TIME - 100);
+
+      // Alice creates an asset
+      const string series_name = "SERIESA";
+      create_user_issued_asset(series_name, alice_id(db), 0);
+
+      // Alice creates a sub-asset
+      const string sub_asset_1_name = "SERIESA.SUB1";
+      const asset_object &sub_asset_1 = create_user_issued_asset(sub_asset_1_name, alice_id(db), 0, 1000000, 2);
+      const asset_id_type sub_asset_1_id = sub_asset_1.id;
+
+      // Reject minting before the hardfork
+      // Alice attempts a minting with Alice's asset
+      mint_op = graphene::chain::nft_mint_operation();
+      mint_op.issuer = alice_id;
+      mint_op.asset_id = sub_asset_1_id;
+      mint_op.subdivisions = 100; // An entire single token (10^precision = 10^2 = 100)
+      mint_op.min_price_per_subdivision = asset(0, core_id); // No minimum price required
+      mint_op.req_backing_per_subdivision = asset(0, core_id); // No backing required
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, alice_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "not yet enabled");
+
+      // Reject minting in a proposal before the hardfork
+      {
+         proposal_create_operation pop;
+         pop.review_period_seconds = 86400;
+         uint32_t buffer_seconds = 60 * 60;
+         pop.expiration_time = db.head_block_time() + *pop.review_period_seconds + buffer_seconds;
+         pop.fee_paying_account = GRAPHENE_TEMP_ACCOUNT;
+         pop.proposed_ops.emplace_back(mint_op);
+
+         trx.clear();
+         trx.operations.push_back(pop);
+         // sign(trx, alice_private_key);
+         REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Not allowed until");
+      }
+   } FC_LOG_AND_RETHROW()
+}
+
 BOOST_AUTO_TEST_SUITE_END()
