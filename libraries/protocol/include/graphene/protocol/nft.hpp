@@ -26,6 +26,7 @@
 #include <fc/time.hpp>
 #include <graphene/protocol/base.hpp>
 #include <graphene/protocol/asset.hpp>
+#include <graphene/protocol/memo.hpp>
 
 namespace graphene {
    namespace protocol {
@@ -109,6 +110,46 @@ namespace graphene {
          account_id_type fee_payer() const { return issuer; }
 
       };
+
+      struct nft_primary_transfer_operation : public base_operation {
+         struct fee_parameters_type {
+            uint64_t fee       = 20 * GRAPHENE_BLOCKCHAIN_PRECISION;
+            uint32_t price_per_kbyte = 10 * GRAPHENE_BLOCKCHAIN_PRECISION; /// only required for large memos.
+         };
+
+         /// Paid to the network
+         asset fee;
+
+         /// The amount of an asset to transfer from an Series Inventory associated with the asset to @ref to
+         asset amount;
+
+         /// Account to transfer asset to
+         account_id_type to;
+
+         /// User provided data encrypted to the memo key of the "to" account
+         optional<memo_data> memo;
+
+         /// This account must sign and pay the fee for this operation
+         /// This account must be the Manager of the Series containing the minted asset.
+         account_id_type manager;
+
+         /// Account that will provision the backing that may be required by the NFT
+         optional<account_id_type> provisioner;
+
+         /// for future expansion
+         extensions_type extensions;
+
+         /***
+          * @brief Perform simple validation of this object
+          */
+         void validate() const;
+         share_type calculate_fee(const fee_parameters_type& k) const;
+
+         /**
+          * @brief Who will pay the fee
+          */
+         account_id_type fee_payer() const { return manager; }
+      };
    }
 }
 
@@ -126,8 +167,16 @@ FC_REFLECT( graphene::protocol::nft_mint_operation,
 (fee)(issuer)(asset_id)(subdivisions)(min_price_per_subdivision)(req_backing_per_subdivision)(extensions)
 )
 
+FC_REFLECT( graphene::protocol::nft_primary_transfer_operation::fee_parameters_type, (fee)(price_per_kbyte) )
+FC_REFLECT( graphene::protocol::nft_primary_transfer_operation,
+(fee)(amount)(to)(memo)(manager)(provisioner)(extensions)
+)
+
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation )
 
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation )
+
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfer_operation::fee_parameters_type )
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfer_operation )

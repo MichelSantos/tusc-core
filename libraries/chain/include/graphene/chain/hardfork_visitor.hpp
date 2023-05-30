@@ -55,7 +55,8 @@ struct hardfork_visitor {
                                         liquidity_pool_withdraw_operation,
                                         liquidity_pool_exchange_operation >;
    using nft_m1_ops = TL::list<nft_series_create_operation,
-                               nft_mint_operation>;
+                               nft_mint_operation,
+                               nft_primary_transfer_operation>;
    fc::time_point_sec now;
 
    hardfork_visitor(fc::time_point_sec now) : now(now) {}

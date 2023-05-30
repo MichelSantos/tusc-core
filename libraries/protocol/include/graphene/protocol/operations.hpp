@@ -117,7 +117,8 @@ namespace graphene { namespace protocol {
             /* 62 */ liquidity_pool_withdraw_operation,
             /* 63 */ liquidity_pool_exchange_operation,
             /* 64 */ nft_series_create_operation,
-            /* 65 */ nft_mint_operation
+            /* 65 */ nft_mint_operation,
+            /* 66 */ nft_primary_transfer_operation
          > operation;
 
    /// @} // operations group

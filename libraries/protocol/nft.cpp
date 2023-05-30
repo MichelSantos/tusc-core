@@ -61,6 +61,23 @@ namespace graphene {
          FC_ASSERT(req_backing_per_subdivision.amount <= min_price_per_subdivision.amount,
                    "The required backing per subdivision should not exceed the minimum price per subdivision");
       }
+
+      share_type nft_primary_transfer_operation::calculate_fee( const fee_parameters_type& schedule )const
+      {
+         share_type core_fee_required = schedule.fee;
+         if( memo )
+            core_fee_required += calculate_data_fee( fc::raw::pack_size(memo), schedule.price_per_kbyte );
+         return core_fee_required;
+      }
+
+      void nft_primary_transfer_operation::validate() const {
+         const asset_id_type &core = asset_id_type();
+
+         FC_ASSERT(fee.amount >= 0, "Fee amount should not be negative");
+         FC_ASSERT(fee.asset_id == core, "The fee should be paid in core asset");
+
+         FC_ASSERT(amount.amount > 0, "Amount of a primary transfer should be positive");
+      }
    }
 }
 
@@ -69,3 +86,6 @@ GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create
 
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation::fee_parameters_type )
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation )
+
+GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfer_operation::fee_parameters_type )
+GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfer_operation )

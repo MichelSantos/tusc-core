@@ -93,6 +93,21 @@ struct operation_get_required_auth
          op.get_required_authorities( other );
       }
    }
+
+   /**
+    * @brief NFT Primary Transfers require the signature of the fee payer
+    * and the provisioner when one is specified
+    */
+   void operator()( const nft_primary_transfer_operation& op ) const {
+      active.insert(op.fee_payer());
+      if (op.provisioner.valid() && (*op.provisioner != op.fee_payer()) ) {
+         active.insert(*op.provisioner);
+      }
+
+      op.get_required_active_authorities( active );
+      op.get_required_owner_authorities( owner );
+      op.get_required_authorities( other );
+   }
 };
 
 void operation_validate( const operation& op )

@@ -344,6 +344,14 @@ struct get_impacted_account_visitor
    {
       _impacted.insert( op.fee_payer() ); // Issuer
    }
+   void operator()( const nft_primary_transfer_operation& op )
+   {
+      _impacted.insert( op.to );
+      _impacted.insert( op.fee_payer() );
+      if ( op.provisioner.valid() &&  (*(op.provisioner) != op.fee_payer()) ) {
+         _impacted.insert( *(op.provisioner) );
+      }
+   }
 };
 
 } // namespace detail
