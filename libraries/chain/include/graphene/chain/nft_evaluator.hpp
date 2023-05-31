@@ -53,5 +53,18 @@ namespace graphene {
          const asset_dynamic_data_object* token_dyn_data = nullptr;
       };
 
+      class nft_primary_transfer_evaluator : public evaluator<nft_primary_transfer_evaluator> {
+      public:
+         typedef nft_primary_transfer_operation operation_type;
+
+         void_result do_evaluate(const nft_primary_transfer_operation &o);
+
+         void_result do_apply(const nft_primary_transfer_operation &o);
+
+         const nft_token_object* ptr_token_obj = nullptr;
+         bool _is_backing_required = false;
+         asset _required_backing;
+      };
+
    } // namespace graphene
 } // namespace graphene

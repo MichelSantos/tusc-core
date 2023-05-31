@@ -25,6 +25,7 @@
 #include <graphene/protocol/nft.hpp>
 #include <graphene/chain/nft_object.hpp>
 #include <graphene/chain/nft_evaluator.hpp>
+#include <graphene/chain/is_authorized_asset.hpp>
 
 namespace graphene {
    namespace chain {
@@ -285,6 +286,131 @@ namespace graphene {
             });
 
             return ptr_t_obj->id;
+         } FC_CAPTURE_AND_RETHROW((op))
+      }
+
+      void_result nft_primary_transfer_evaluator::do_evaluate(const nft_primary_transfer_operation &op) {
+         try {
+            const graphene::chain::database& d = db();
+
+            const account_object& to_account = op.to(d);
+            const asset_object& asset_type = op.amount.asset_id(d);
+
+            // Verify that the asset is a minted token object
+            const auto& token_id_idx = d.get_index_type<nft_token_index>().indices().get<by_nft_token_asset_id>();
+            auto token_itr = token_id_idx.find(op.amount.asset_id);
+            const bool& is_nft = (token_itr != token_id_idx.end());
+            FC_ASSERT(is_nft, "Primary transfers may only be performed for NFT tokens");
+            const nft_token_object &nft_obj = *token_itr;
+            ptr_token_obj = &nft_obj;
+
+            const auto &series_idx = d.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+            auto series_itr = series_idx.find(nft_obj.series_id);
+            FC_ASSERT(series_itr != series_idx.end());
+            const nft_series_object &series_obj = *series_itr;
+            const asset_object& series_asset_obj = series_obj.asset_id(d);
+            const account_object& series_issuer = series_asset_obj.issuer(d);
+
+            // Verify that the specified manager is actually the Series Manager
+            FC_ASSERT(op.manager == series_obj.manager,
+                      "Primary transfers may only be initiated by the Series Manager. (Series Manager is ${series_mgr}.  Operation Manger is ${op_mgr}.)",
+                      ("series_mgr", series_obj.manager)
+                      ("op_mgr", op.manager)
+            );
+
+            // Verify conventional transfer restrictions: is the Series Issuer authorized to send the asset
+            GRAPHENE_ASSERT(is_authorized_asset(d, series_issuer, asset_type),
+                            transfer_from_account_not_whitelisted,
+                            "Series Issuer account ${issuer} is not whitelisted for asset ${asset}",
+                            ("issuer", series_issuer)
+                            ("asset", op.amount.asset_id)
+            );
+
+            // Verify conventional transfer restrictions: is the recipient authorized to receive the asset
+            GRAPHENE_ASSERT(is_authorized_asset(d, to_account, asset_type),
+                            transfer_to_account_not_whitelisted,
+                            "'to' account ${to} is not whitelisted for asset ${asset}",
+                            ("to", op.to)
+                            ("asset", op.amount.asset_id)
+            );
+
+            // Verify conventional transfer restrictions: is the asset transfer restricted
+            if( asset_type.is_transfer_restricted() )
+            {
+               GRAPHENE_ASSERT(series_issuer.id == asset_type.issuer || to_account.id == asset_type.issuer,
+                               transfer_restricted_transfer_asset,
+                               "Asset ${asset} has transfer_restricted flag enabled",
+                               ("asset", op.amount.asset_id)
+               );
+            }
+
+            // Verify that the Inventory has sufficient assets to satisfy the primary transfer
+            FC_ASSERT(op.amount.asset_id == nft_obj.token_id); // Redundant check from earlier in the function
+            FC_ASSERT(op.amount.amount > 0); // Redundant check from the operation's validate()
+            FC_ASSERT(op.amount.amount <= nft_obj.amount_in_inventory,
+                      "The amount of the primary transfer (${requested} subdivisions) exceeds the available balance in the Inventory (${available} subdivisions)",
+                      ("requested", op.amount.amount)
+                      ("available", nft_obj.amount_in_inventory)
+            );
+
+            // Verify backing requirements
+            _is_backing_required = nft_obj.req_backing_per_subdivision.amount > 0;
+            if (_is_backing_required) {
+               // If the NFT requires backing, verify that a provisioner has been specified
+               FC_ASSERT(op.provisioner.valid(), "A provisioner should be provided for tokens that require backing");
+
+               // If the NFT requires backing, verify that provisioner has sufficient balance
+               const account_id_type& provisioner_id = *op.provisioner;
+               const asset& provisioner_balance = d.get_balance(provisioner_id, nft_obj.req_backing_per_subdivision.asset_id);
+               const fc::uint128_t& required_backing_uint128
+                  = fc::uint128_t(op.amount.amount.value) * nft_obj.req_backing_per_subdivision.amount.value;
+               bool sufficient_balance = required_backing_uint128 <= provisioner_balance.amount;
+               FC_ASSERT(sufficient_balance,
+                          "Insufficient Balance ${p_bal} in the provisioner account (${p}): Unable to transfer '${total_transfer}' from Inventory to '${to}'",
+                          ("p_bal", d.to_pretty_string(provisioner_balance))
+                          ("p", provisioner_id)
+                          ("total_transfer", d.to_pretty_string(op.amount))
+                          ("to",op.to)
+               );
+               _required_backing = asset(static_cast<int64_t>(required_backing_uint128), nft_obj.req_backing_per_subdivision.asset_id);
+            } else {
+               // If the NFT DOES NOT require backing, reject the specification of a provisioner
+               // to avoid any possible confusion by the entity constructing the operations
+               // (which should be the Manager)
+               FC_ASSERT(!op.provisioner.valid(), "A provisioner should NOT be provided for tokens that DO NOT require backing");
+            }
+
+            return void_result();
+         } FC_CAPTURE_AND_RETHROW((op))
+      }
+
+      void_result nft_primary_transfer_evaluator::do_apply(const nft_primary_transfer_operation &op) {
+         try {
+            graphene::chain::database &d = db();
+
+            const nft_token_object& token_obj = *ptr_token_obj;
+            if (_is_backing_required) {
+               // Decrease the provisioning account of the required backing
+               d.adjust_balance(*op.provisioner, -_required_backing);
+            }
+
+            const bool& is_backing_required = _is_backing_required;
+            const asset& required_backing = _required_backing;
+            db().modify(token_obj, [&op,&is_backing_required,&required_backing](nft_token_object &obj) {
+               // Increase the backing in the Inventory
+               if (is_backing_required) {
+                  obj.current_backing.amount += required_backing.amount;
+               }
+
+               // Decrease the token in the Inventory
+               obj.amount_in_inventory += -op.amount.amount;
+            });
+
+
+            // Increase the balance of the recipient account
+            d.adjust_balance(op.to, op.amount);
+
+            return void_result();
          } FC_CAPTURE_AND_RETHROW((op))
       }
 
