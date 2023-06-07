@@ -293,6 +293,10 @@ namespace graphene {
          try {
             const graphene::chain::database& d = db();
 
+            // Reject any activity before the hardfork time
+            auto now = d.head_block_time();
+            FC_ASSERT(HARDFORK_NFT_M1_PASSED(now), "NFT Primary Transfer is not yet enabled");
+
             const account_object& to_account = op.to(d);
             const asset_object& asset_type = op.amount.asset_id(d);
 
