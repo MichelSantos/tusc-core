@@ -247,6 +247,11 @@ class database_api_impl : public std::enable_shared_from_this<database_api_impl>
             optional<uint32_t> limit = 101,
             optional<ticket_id_type> start_id = optional<ticket_id_type>() )const;
 
+      // NFT
+      optional<nft_series_object> get_series_by_asset(const std::string& asset_name_or_id) const;
+      vector<nft_series_object> list_series(optional<uint32_t> limit = 101,
+                                            optional<nft_series_id_type> start_id = optional<nft_series_id_type>()) const;
+
    //private:
 
       ////////////////////////////////////////////////

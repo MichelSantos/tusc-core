@@ -2996,6 +2996,71 @@ vector<ticket_object> database_api_impl::get_tickets_by_account(
 
 //////////////////////////////////////////////////////////////////////
 //                                                                  //
+// NFT                                                              //
+//                                                                  //
+//////////////////////////////////////////////////////////////////////
+
+optional<nft_series_object> database_api::get_series_by_asset(const std::string &asset_name_or_id) const {
+   return my->get_series_by_asset(asset_name_or_id);
+}
+
+optional<nft_series_object> database_api_impl::get_series_by_asset(const string& asset_name_or_id) const {
+   const asset_object* asset = get_asset_from_string(asset_name_or_id, false);
+   if (asset == nullptr) {
+      return optional<nft_series_object>();
+   }
+   const asset_id_type& asset_id = asset->id;
+
+   const auto &series_id_idx = _db.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+   auto series_itr = series_id_idx.find(asset_id);
+   if (series_itr == series_id_idx.end()) {
+      return optional<nft_series_object>();
+   }
+
+   return *series_itr;
+}
+
+vector<nft_series_object> database_api::list_series(
+   optional<uint32_t> limit,
+   optional<nft_series_id_type> start_id )const
+{
+   return my->list_series(
+      limit,
+      start_id );
+}
+
+vector<nft_series_object> database_api_impl::list_series(
+   optional<uint32_t> olimit,
+   optional<nft_series_id_type> ostart_id )const
+{
+   uint32_t limit = olimit.valid() ? *olimit : 101;
+
+   FC_ASSERT( _app_options, "Internal error" );
+   const auto configured_limit = _app_options->api_limit_get_series;
+   FC_ASSERT( limit <= configured_limit,
+              "limit can not be greater than ${configured_limit}",
+              ("configured_limit", configured_limit) );
+
+   vector<nft_series_object> results;
+
+   nft_series_id_type start_id = ostart_id.valid() ? *ostart_id : nft_series_id_type();
+
+   const auto& idx = _db.get_index_type<nft_series_index>().indices().get<by_id>();
+   auto lower_itr = idx.lower_bound( start_id );
+   auto upper_itr = idx.end();
+
+   results.reserve( limit );
+   uint32_t count = 0;
+   for ( ; lower_itr != upper_itr && count < limit; ++lower_itr, ++count)
+   {
+      results.emplace_back( *lower_itr );
+   }
+
+   return results;
+}
+
+//////////////////////////////////////////////////////////////////////
+//                                                                  //
 // Private methods                                                  //
 //                                                                  //
 //////////////////////////////////////////////////////////////////////

@@ -38,6 +38,7 @@
 #include <graphene/chain/ticket_object.hpp>
 #include <graphene/chain/worker_object.hpp>
 #include <graphene/chain/witness_object.hpp>
+#include <graphene/chain/nft_object.hpp>
 
 #include <fc/api.hpp>
 #include <fc/variant_object.hpp>
@@ -1113,6 +1114,34 @@ class database_api
             optional<uint32_t> limit = 101,
             optional<ticket_id_type> start_id = optional<ticket_id_type>() )const;
 
+   /////////////
+   // NFT     //
+   /////////////
+
+   /**
+    * @brief Get a series by its associated asset name or ID
+    * @param asset_name_or_id name or ID of the associated asset
+    * @return The Series
+    *
+    * @note
+    * 1. if @p asset_name_or_id cannot be tied to an account, an error will be returned
+    */
+   optional<nft_series_object> get_series_by_asset(const std::string& asset_name_or_id) const;
+
+   /**
+    * @brief Get a list of series
+    * @param limit  The limitation of items each query can fetch, not greater than a configured value
+    * @param start_id  Start series id, fetch Series whose IDs are greater than or equal to this ID
+    * @return The Series
+    *
+    * @note
+    * 1. @p limit can be omitted or be null, if so the default value 101 will be used
+    * 2. @p start_id can be omitted or be null, if so the api will return the "first page" of Series
+    * 3. can only omit one or more arguments in the end of the list, but not one or more in the middle
+    */
+   vector<nft_series_object> list_series(optional<uint32_t> limit = 101,
+                                         optional<nft_series_id_type> start_id = optional<nft_series_id_type>()) const;
+
 private:
       std::shared_ptr< database_api_impl > my;
 };
@@ -1255,4 +1284,8 @@ FC_API(graphene::app::database_api,
    // Tickets
    (list_tickets)
    (get_tickets_by_account)
+
+   // NFT
+   (get_series_by_asset)
+   (list_series)
 )

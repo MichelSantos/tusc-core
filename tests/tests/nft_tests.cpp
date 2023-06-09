@@ -34,7 +34,7 @@
 #include <graphene/chain/database.hpp>
 #include <graphene/chain/hardfork.hpp>
 
-#include <graphene/chain/balance_object.hpp>
+#include <graphene/app/database_api.hpp>
 
 #include "../common/database_fixture.hpp"
 
@@ -1942,6 +1942,206 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_before_hardfork) {
          // sign(trx, creator_private_key); // No signature required for operations paid by GRAPHENE_TEMP_ACCOUNT
          REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Not allowed until");
       }
+   } FC_LOG_AND_RETHROW()
+}
+
+
+std::string asset_id_to_string(asset_id_type id) {
+   std::string asset_id = fc::to_string(id.space_id) +
+                          "." + fc::to_string(id.type_id) +
+                          "." + fc::to_string(id.instance.value);
+   return asset_id;
+}
+
+/**
+ * Test the database API ability to query a series by its associated asset
+ */
+BOOST_AUTO_TEST_CASE( db_api_get_series_by_asset ) {
+   try {
+      advance_past_m1_hardfork();
+
+      // Initialize
+      ACTORS((creator)(mgr)(beneficiary));
+      int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, creator_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, mgr_id, graphene::chain::asset(init_balance));
+
+      // Create a Series where creator is the Issuer and mgr is the Series Manager
+      const string series_name = "SERIESA";
+      uint16_t royalty_fee_centipercent = 5 * GRAPHENE_1_PERCENT;
+      const asset_id_type series_asset_id = create_asset_and_series(series_name, creator_id, creator_private_key,
+                              beneficiary_id, mgr_id, royalty_fee_centipercent);
+
+      // Query the database API
+      graphene::app::database_api db_api(db, &(this->app.get_options()));
+
+      // Query by asset name
+      {
+         BOOST_TEST_MESSAGE("Querying the database API by Series/Asset name");
+         optional<nft_series_object> opt_series_obj = db_api.get_series_by_asset(series_name);
+         BOOST_REQUIRE(opt_series_obj.valid());
+         nft_series_object series_obj = *db_api.get_series_by_asset(series_name);
+         BOOST_CHECK(series_obj.beneficiary == beneficiary_id);
+         BOOST_CHECK(series_obj.manager == mgr_id);
+         BOOST_CHECK(series_obj.asset_id == series_asset_id);
+         BOOST_CHECK_EQUAL(series_obj.royalty_fee_centipercent, 500);
+         BOOST_CHECK_EQUAL(series_obj.series_name, series_name);
+      }
+
+      // Query by asset ID
+      {
+         BOOST_TEST_MESSAGE("Querying the database API by Series associated asset ID: " + asset_id_to_string(series_asset_id));
+         nft_series_object series_obj = *db_api.get_series_by_asset(asset_id_to_string(series_asset_id));
+         BOOST_CHECK(series_obj.beneficiary == beneficiary_id);
+         BOOST_CHECK(series_obj.manager == mgr_id);
+         BOOST_CHECK(series_obj.asset_id == series_asset_id);
+         BOOST_CHECK_EQUAL(series_obj.royalty_fee_centipercent, 500);
+         BOOST_CHECK_EQUAL(series_obj.series_name, series_name);
+      }
+
+      // Query for a non-existent asset
+      BOOST_TEST_MESSAGE("Querying the database API for non existing asset");
+      BOOST_CHECK(!db_api.get_series_by_asset("non-existent-asset").valid());
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test the database API ability to query all series
+ */
+BOOST_AUTO_TEST_CASE( db_api_list_series ) {
+   try {
+      advance_past_m1_hardfork();
+
+      // Initialize
+      ACTORS((creatora)(creatorb)(mgra)(mgrb)(beneficiarya)(beneficiaryb));
+      int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, creatora_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, mgra_id, graphene::chain::asset(init_balance));
+
+      // Query the database API
+      graphene::app::database_api db_api(db, &(this->app.get_options()));
+      vector<nft_series_object> list;
+      graphene::chain::nft_series_id_type non_existing_series_id(999);
+
+      ///
+      /// No Series exist
+      ///
+      // List series when no series exist
+      {
+         BOOST_TEST_MESSAGE("Querying all series: expecting no series");
+         list = db_api.list_series(); // Without any filter
+         BOOST_CHECK_EQUAL(list.size(), 0);
+
+         list = db_api.list_series(3); // Without any lower bound
+         BOOST_CHECK_EQUAL(list.size(), 0);
+
+         list = db_api.list_series(10, non_existing_series_id);  // With a non-existent lower bound
+         BOOST_CHECK_EQUAL(list.size(), 0);
+      }
+
+
+      ///
+      /// Create a Series to reach a total of 1 Series
+      ///
+      const string series_a1_name = "SERIESA1";
+      uint16_t royalty_fee_centipercent = 5 * GRAPHENE_1_PERCENT;
+      const asset_id_type series_a1_asset_id = create_asset_and_series(series_a1_name, creatora_id,
+                                                                       creatora_private_key,
+                                                                       beneficiarya_id, mgra_id,
+                                                                       royalty_fee_centipercent);
+
+
+      // List series when 1 series exists
+      {
+         BOOST_TEST_MESSAGE("Querying all series: expecting 1 series");
+         list = db_api.list_series(); // Without any filter
+         BOOST_CHECK_EQUAL(list.size(), 1);
+
+         list = db_api.list_series(3); // Without any lower bound
+         BOOST_CHECK_EQUAL(list.size(), 1);
+
+         list = db_api.list_series(3, non_existing_series_id);  // With a non-existent lower bound
+         BOOST_CHECK_EQUAL(list.size(), 0);
+      }
+
+      ///
+      /// Create a Series to reach a total of 5 Series
+      ///
+      const string series_b1_name = "SERIESB1";
+      const asset_id_type series_b1_asset_id = create_asset_and_series(series_b1_name, creatorb_id,
+                                                                       creatorb_private_key,
+                                                                       beneficiarya_id, mgra_id,
+                                                                       royalty_fee_centipercent);
+
+      const string series_a2_name = "SERIESA2";
+      const asset_id_type series_a2_asset_id = create_asset_and_series(series_a2_name, creatora_id,
+                                                                       creatora_private_key,
+                                                                       beneficiarya_id, mgra_id,
+                                                                       royalty_fee_centipercent);
+
+      const string series_a3_name = "SERIESA3";
+      const asset_id_type series_a3_asset_id = create_asset_and_series(series_a3_name, creatora_id,
+                                                                       creatora_private_key,
+                                                                       beneficiarya_id, mgra_id,
+                                                                       royalty_fee_centipercent);
+
+      const string series_b2_name = "SERIESB2";
+      const asset_id_type series_b2_asset_id = create_asset_and_series(series_b2_name, creatorb_id,
+                                                                       creatorb_private_key,
+                                                                       beneficiarya_id, mgra_id,
+                                                                       royalty_fee_centipercent);
+
+      // List series when 5 exist
+      {
+         BOOST_TEST_MESSAGE("Querying all series: expecting 5 series");
+         list = db_api.list_series(); // Without any filter
+         BOOST_CHECK_EQUAL(list.size(), 5);
+
+         list = db_api.list_series(3); // Without any lower bound
+         BOOST_CHECK_EQUAL(list.size(), 3); // <-- Should be limited to the first 3
+         BOOST_CHECK_EQUAL(list[0].id.instance(), 0);
+         BOOST_CHECK_EQUAL(list[1].id.instance(), 1);
+         BOOST_CHECK_EQUAL(list[2].id.instance(), 2);
+
+         list = db_api.list_series(3, graphene::chain::nft_series_id_type(3)); // With a lower bound
+         BOOST_CHECK_EQUAL(list.size(), 2); // <-- Should be limited to the remaining 2
+         BOOST_CHECK_EQUAL(list[0].id.instance(), 3);
+         BOOST_CHECK_EQUAL(list[1].id.instance(), 4);
+
+         list = db_api.list_series(3, non_existing_series_id);  // With a non-existent lower bound
+         BOOST_CHECK_EQUAL(list.size(), 0);
+
+         // Query each available series one at a time
+         list = db_api.list_series(1, graphene::chain::nft_series_id_type(0));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK_EQUAL(list[0].id.instance(), 0);
+         BOOST_CHECK(list[0].asset_id == series_a1_asset_id);
+
+         list = db_api.list_series(1, graphene::chain::nft_series_id_type(1));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK_EQUAL(list[0].id.instance(), 1);
+         BOOST_CHECK(list[0].asset_id == series_b1_asset_id);
+
+         list = db_api.list_series(1, graphene::chain::nft_series_id_type(2));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK_EQUAL(list[0].id.instance(), 2);
+         BOOST_CHECK(list[0].asset_id == series_a2_asset_id);
+
+         list = db_api.list_series(1, graphene::chain::nft_series_id_type(3));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK_EQUAL(list[0].id.instance(), 3);
+         BOOST_CHECK(list[0].asset_id == series_a3_asset_id);
+
+         list = db_api.list_series(1, graphene::chain::nft_series_id_type(4));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK_EQUAL(list[0].id.instance(), 4);
+         BOOST_CHECK(list[0].asset_id == series_b2_asset_id);
+
+         list = db_api.list_series(1, graphene::chain::nft_series_id_type(5));
+         BOOST_CHECK_EQUAL(list.size(), 0);
+      }
+
    } FC_LOG_AND_RETHROW()
 }
 

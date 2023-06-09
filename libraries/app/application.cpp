@@ -397,6 +397,9 @@ void application_impl::set_api_limit() {
       _app_options.api_limit_get_liquidity_pool_history =
             _options->at("api-limit-get-liquidity-pool-history").as<uint64_t>();
    }
+   if(_options->count("api-limit-get-series") > 0) {
+      _app_options.api_limit_get_series = _options->at("api-limit-get-series").as<uint64_t>();
+   }
 }
 
 graphene::chain::genesis_state_type application_impl::initialize_genesis_state() const
