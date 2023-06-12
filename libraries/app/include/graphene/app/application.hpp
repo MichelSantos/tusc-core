@@ -76,6 +76,7 @@ namespace graphene { namespace app {
          uint64_t api_limit_get_liquidity_pools = 101;
          uint64_t api_limit_get_liquidity_pool_history = 101;
          uint64_t api_limit_get_series = 101;
+         uint64_t api_limit_get_tokens = 101;
    };
 
    class application

@@ -3059,6 +3059,70 @@ vector<nft_series_object> database_api_impl::list_series(
    return results;
 }
 
+optional<nft_token_object> database_api::get_token_by_asset(const std::string &asset_name_or_id) const {
+   return my->get_token_by_asset(asset_name_or_id);
+}
+
+optional<nft_token_object> database_api_impl::get_token_by_asset(const string& asset_name_or_id) const {
+   const asset_object* asset = get_asset_from_string(asset_name_or_id, false);
+   if (asset == nullptr) {
+      return optional<nft_token_object>();
+   }
+   const asset_id_type& asset_id = asset->id;
+
+   const auto &token_id_idx = _db.get_index_type<nft_token_index>().indices().get<by_nft_token_asset_id>();
+   auto token_itr = token_id_idx.find(asset_id);
+   if (token_itr == token_id_idx.end()) {
+      return optional<nft_token_object>();
+   }
+   return *token_itr;
+}
+
+vector<nft_token_object> database_api::list_tokens_by_series_name(
+   const std::string& series_name,
+   optional<uint32_t> limit,
+   optional<nft_token_id_type> start_id) const
+{
+   return my->list_tokens_by_series_name(series_name, limit, start_id);
+}
+
+vector<nft_token_object> database_api_impl::list_tokens_by_series_name(
+   const std::string& series_name,
+   optional<uint32_t> olimit,
+   optional<nft_token_id_type> ostart_id )const
+{
+   uint32_t limit = olimit.valid() ? *olimit : 101;
+
+   FC_ASSERT( _app_options, "Internal error" );
+   const auto configured_limit = _app_options->api_limit_get_tokens;
+   FC_ASSERT( limit <= configured_limit,
+              "limit can not be greater than ${configured_limit}",
+              ("configured_limit", configured_limit) );
+
+   vector<nft_token_object> results;
+
+   const auto& idx = _db.get_index_type<nft_token_index>().indices().get<by_nft_token_series_id>();
+
+   asset_id_type series_asset_id = get_asset_from_string(series_name)->id;
+   nft_token_id_type start_id = ostart_id.valid() ? *ostart_id : nft_token_id_type();
+   auto lower_itr = idx.lower_bound(boost::make_tuple(series_asset_id, start_id));
+   // Construct an upper bound at the maximum value possible for the combination of
+   // (a) the Asset ID of the specified series
+   // (b) the Token ID
+   // to limit search results to only the specified Series
+   auto upper_itr = idx.upper_bound(boost::make_tuple(series_asset_id, nft_token_id_type(GRAPHENE_DB_MAX_INSTANCE_ID)));
+
+   results.reserve( limit );
+   uint32_t count = 0;
+   for ( ; lower_itr != upper_itr && count < limit; ++lower_itr, ++count)
+   {
+      results.emplace_back( *lower_itr );
+   }
+
+   return results;
+}
+
+
 //////////////////////////////////////////////////////////////////////
 //                                                                  //
 // Private methods                                                  //

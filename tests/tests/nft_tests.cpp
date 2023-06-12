@@ -2145,4 +2145,282 @@ BOOST_AUTO_TEST_CASE( db_api_list_series ) {
    } FC_LOG_AND_RETHROW()
 }
 
+/**
+ * Test the database API ability to query a token by its associated asset
+ */
+BOOST_AUTO_TEST_CASE( db_api_tokens ) {
+   try {
+      // Initialize
+      INVOKE(db_api_list_series);
+      GET_ACTOR(creatora);
+      GET_ACTOR(creatorb);
+      // Series name Should match the series name from the referenced db_api_list_series
+      const string series_a_name = "SERIESA1";
+      const string series_b_name = "SERIESB1";
+      const asset_id_type core_id = asset_id_type();
+      graphene::app::database_api db_api(db, &(this->app.get_options()));
+      vector <nft_token_object> list;
+      graphene::chain::nft_token_id_type non_existing_token_id(999);
+
+      ///
+      /// Query for Series tokens when none yet exist
+      ///
+      BOOST_TEST_MESSAGE("Querying all tokens: expecting none");
+      // List tokens when none exist
+      {
+         BOOST_TEST_MESSAGE("Querying all tokens: expecting none in series");
+         list = db_api.list_tokens_by_series_name(series_a_name); // Without any filter
+         BOOST_CHECK_EQUAL(list.size(), 0);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 3); // Without any lower bound
+         BOOST_CHECK_EQUAL(list.size(), 0);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 10,
+                                                  non_existing_token_id);  // With a non-existent lower bound
+         BOOST_CHECK_EQUAL(list.size(), 0);
+      }
+
+      ///
+      /// Create 5 tokens in Series A, and 3 tokens in Series B
+      /// but intermingle their creations to exercise the index "by_nft_token_series_id"
+      /// The creation sequence shall be:
+      /// 1. A1.SUB1
+      /// 2. B1.SUB1
+      /// 3. A1.SUB2
+      /// 4. A1.SUB3
+      /// 5. B1.SUB2
+      /// 6. B1.SUB3
+      /// 7. A1.SUB4
+      /// 8. A1.SUB5
+      ///
+      asset min_price_per_subdivision;
+      asset req_backing_per_subdivision;
+      uint8_t token_precision;
+
+      // Create Token A1.SUB1
+      const string token_A1_name = series_a_name + ".SUB1";
+      min_price_per_subdivision = asset(100, core_id);
+      req_backing_per_subdivision = asset(0, core_id);
+      token_precision = 1; // An entire single token should have (10^precision = 10^1 = 10) subdivisions
+      const asset_id_type token_A1_id = create_sub_asset_and_mint(token_A1_name, token_precision,
+                                                                 creatora_id, creatora_private_key,
+                                                                 req_backing_per_subdivision,
+                                                                 min_price_per_subdivision);
+
+      // Create Token B1.SUB1
+      const string token_B1_name = series_b_name + ".SUB1";
+      min_price_per_subdivision = asset(100, core_id);
+      req_backing_per_subdivision = asset(50, core_id);
+      token_precision = 1; // An entire single token should have (10^precision = 10^1 = 10) subdivisions
+      const asset_id_type token_B1_id = create_sub_asset_and_mint(token_B1_name, token_precision,
+                                                                 creatorb_id, creatorb_private_key,
+                                                                 req_backing_per_subdivision,
+                                                                 min_price_per_subdivision);
+
+      // Create Token A1.SUB2
+      const string token_A2_name = series_a_name + ".SUB2";
+      min_price_per_subdivision = asset(200, core_id);
+      req_backing_per_subdivision = asset(0, core_id);
+      token_precision = 2; // An entire single token should have (10^precision = 10^2 = 100) subdivisions
+      const asset_id_type token_A2_id = create_sub_asset_and_mint(token_A2_name, token_precision,
+                                                                 creatora_id, creatora_private_key,
+                                                                 req_backing_per_subdivision,
+                                                                 min_price_per_subdivision);
+
+      // Create Token A1.SUB3
+      const string token_A3_name = series_a_name + ".SUB3";
+      min_price_per_subdivision = asset(300, core_id);
+      req_backing_per_subdivision = asset(0, core_id);
+      token_precision = 3; // An entire single token should have (10^precision = 10^3 = 1000) subdivisions
+      const asset_id_type token_A3_id = create_sub_asset_and_mint(token_A3_name, token_precision,
+                                                                 creatora_id, creatora_private_key,
+                                                                 req_backing_per_subdivision,
+                                                                 min_price_per_subdivision);
+
+      // Create Token B1.SUB2
+      const string token_B2_name = series_b_name + ".SUB2";
+      min_price_per_subdivision = asset(200, core_id);
+      req_backing_per_subdivision = asset(150, core_id);
+      token_precision = 2; // An entire single token should have (10^precision = 10^2 = 100) subdivisions
+      const asset_id_type token_B2_id = create_sub_asset_and_mint(token_B2_name, token_precision,
+                                                                 creatorb_id, creatorb_private_key,
+                                                                 req_backing_per_subdivision,
+                                                                 min_price_per_subdivision);
+
+      // Create Token B1.SUB3
+      const string token_B3_name = series_b_name + ".SUB3";
+      min_price_per_subdivision = asset(300, core_id);
+      req_backing_per_subdivision = asset(250, core_id);
+      token_precision = 3; // An entire single token should have (10^precision = 10^3 = 1000) subdivisions
+      const asset_id_type token_B3_id = create_sub_asset_and_mint(token_B3_name, token_precision,
+                                                                 creatorb_id, creatorb_private_key,
+                                                                 req_backing_per_subdivision,
+                                                                 min_price_per_subdivision);
+
+      // Create Token A1.SUB4
+      const string token_A4_name = series_a_name + ".SUB4";
+      min_price_per_subdivision = asset(400, core_id);
+      req_backing_per_subdivision = asset(0, core_id);
+      token_precision = 4; // An entire single token should have (10^precision = 10^4 = 10000) subdivisions
+      const asset_id_type token_A4_id = create_sub_asset_and_mint(token_A4_name, token_precision,
+                                                                  creatora_id, creatora_private_key,
+                                                                  req_backing_per_subdivision,
+                                                                  min_price_per_subdivision);
+
+      // Create Token A1.SUB5
+      const string token_A5_name = series_a_name + ".SUB5";
+      min_price_per_subdivision = asset(500, core_id);
+      req_backing_per_subdivision = asset(0, core_id);
+      token_precision = 5; // An entire single token should have (10^precision = 10^5 = 100000) subdivisions
+      const asset_id_type token_A5_id = create_sub_asset_and_mint(token_A5_name, token_precision,
+                                                                  creatora_id, creatora_private_key,
+                                                                  req_backing_per_subdivision,
+                                                                  min_price_per_subdivision);
+
+      ///
+      /// Query by each token's associated asset ID
+      ///
+      // Query Token A1.SUB1 by asset name
+      {
+         BOOST_TEST_MESSAGE("Querying the database API by Token/Asset name");
+         nft_token_object token_obj = *db_api.get_token_by_asset(token_A1_name);
+         BOOST_REQUIRE(token_obj.min_price_per_subdivision == asset(100, core_id));
+         BOOST_REQUIRE(token_obj.req_backing_per_subdivision == asset(0, core_id));
+         BOOST_REQUIRE(token_obj.current_backing == asset(0, core_id));
+         // Verify balances
+         BOOST_CHECK_EQUAL(token_obj.amount_minted.value, 10);
+         BOOST_CHECK_EQUAL(token_obj.amount_in_inventory.value, 10);
+         BOOST_CHECK_EQUAL(token_obj.amount_burned.value, 0);
+         BOOST_CHECK_EQUAL(token_obj.amount_on_primary_sale.value, 0);
+         BOOST_CHECK_EQUAL(token_obj.current_backing.amount.value, 0);
+         BOOST_CHECK(token_obj.current_backing.asset_id == core_id);
+      }
+
+      // Query Token A1.SUB1 by asset ID
+      {
+         BOOST_TEST_MESSAGE("Querying the database API by Token/Asset ID");
+         nft_token_object token_obj = *db_api.get_token_by_asset(asset_id_to_string(token_A1_id));
+         BOOST_REQUIRE(token_obj.min_price_per_subdivision == asset(100, core_id));
+         BOOST_REQUIRE(token_obj.req_backing_per_subdivision == asset(0, core_id));
+         BOOST_REQUIRE(token_obj.current_backing == asset(0, core_id));
+         // Verify balances
+         BOOST_CHECK_EQUAL(token_obj.amount_minted.value, 10);
+         BOOST_CHECK_EQUAL(token_obj.amount_in_inventory.value, 10);
+         BOOST_CHECK_EQUAL(token_obj.amount_burned.value, 0);
+         BOOST_CHECK_EQUAL(token_obj.amount_on_primary_sale.value, 0);
+         BOOST_CHECK_EQUAL(token_obj.current_backing.amount.value, 0);
+         BOOST_CHECK(token_obj.current_backing.asset_id == core_id);
+      }
+
+      // Query Token B1.SUB1 by asset name
+      {
+         BOOST_TEST_MESSAGE("Querying the database API by Token/Asset name");
+         nft_token_object token_obj = *db_api.get_token_by_asset(token_B1_name);
+         BOOST_REQUIRE(token_obj.min_price_per_subdivision == asset(100, core_id));
+         BOOST_REQUIRE(token_obj.req_backing_per_subdivision == asset(50, core_id));
+         BOOST_REQUIRE(token_obj.current_backing == asset(0, core_id));
+         // Verify balances
+         BOOST_CHECK_EQUAL(token_obj.amount_minted.value, 10);
+         BOOST_CHECK_EQUAL(token_obj.amount_in_inventory.value, 10);
+         BOOST_CHECK_EQUAL(token_obj.amount_burned.value, 0);
+         BOOST_CHECK_EQUAL(token_obj.amount_on_primary_sale.value, 0);
+         BOOST_CHECK_EQUAL(token_obj.current_backing.amount.value, 0);
+         BOOST_CHECK(token_obj.current_backing.asset_id == core_id);
+      }
+
+      // Query Token B1.SUB1 by asset ID
+      {
+         BOOST_TEST_MESSAGE("Querying the database API by Token/Asset ID");
+         nft_token_object token_obj = *db_api.get_token_by_asset(asset_id_to_string(token_B1_id));
+         BOOST_REQUIRE(token_obj.min_price_per_subdivision == asset(100, core_id));
+         BOOST_REQUIRE(token_obj.req_backing_per_subdivision == asset(50, core_id));
+         BOOST_REQUIRE(token_obj.current_backing == asset(0, core_id));
+         // Verify balances
+         BOOST_CHECK_EQUAL(token_obj.amount_minted.value, 10);
+         BOOST_CHECK_EQUAL(token_obj.amount_in_inventory.value, 10);
+         BOOST_CHECK_EQUAL(token_obj.amount_burned.value, 0);
+         BOOST_CHECK_EQUAL(token_obj.amount_on_primary_sale.value, 0);
+         BOOST_CHECK_EQUAL(token_obj.current_backing.amount.value, 0);
+         BOOST_CHECK(token_obj.current_backing.asset_id == core_id);
+      }
+
+      // Query for a non-existent asset
+      BOOST_TEST_MESSAGE("Querying the database API for non existing asset");
+      BOOST_CHECK(!db_api.get_token_by_asset("non-existent-asset").valid());
+
+      graphene::chain::asset_id_type non_existing_asset_id(999);
+      BOOST_CHECK(!db_api.get_token_by_asset(asset_id_to_string(non_existing_asset_id)).valid());
+
+      ///
+      /// Query for tokens in a Series
+      ///
+      // List tokens from a Series A1
+      {
+         BOOST_TEST_MESSAGE("Querying all tokens from Series A1: expecting 5");
+         list = db_api.list_tokens_by_series_name(series_a_name);
+         BOOST_CHECK_EQUAL(list.size(), 5);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 3); // Without any lower bound
+         BOOST_CHECK_EQUAL(list.size(), 3); // <-- Should be limited to the first 3
+         BOOST_CHECK(list[0].token_id == token_A1_id);
+         BOOST_CHECK(list[1].token_id == token_A2_id);
+         BOOST_CHECK(list[2].token_id == token_A3_id);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 3,
+                                                  graphene::chain::nft_token_id_type(list[2].id.instance() + 1)); // With a lower bound
+         BOOST_CHECK_EQUAL(list.size(), 2); // <-- Should be limited to the remaining 2
+         BOOST_CHECK(list[0].token_id == token_A4_id);
+         BOOST_CHECK(list[1].token_id == token_A5_id);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 3,
+                                                  non_existing_token_id);  // With a non-existent lower bound
+         BOOST_CHECK_EQUAL(list.size(), 0);
+
+         // Query each available series one at a time
+         list = db_api.list_tokens_by_series_name(series_a_name, 1, graphene::chain::nft_token_id_type(0));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK(list[0].token_id == token_A1_id);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 1, graphene::chain::nft_token_id_type(list[0].id.instance() + 1));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK(list[0].token_id == token_A2_id);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 1, graphene::chain::nft_token_id_type(list[0].id.instance() + 1));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK(list[0].token_id == token_A3_id);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 1, graphene::chain::nft_token_id_type(list[0].id.instance() + 1));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK(list[0].token_id == token_A4_id);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 1, graphene::chain::nft_token_id_type(list[0].id.instance() + 1));
+         BOOST_CHECK_EQUAL(list.size(), 1);
+         BOOST_CHECK(list[0].token_id == token_A5_id);
+
+         list = db_api.list_tokens_by_series_name(series_a_name, 1, graphene::chain::nft_token_id_type(list[0].id.instance() + 1));
+         BOOST_CHECK_EQUAL(list.size(), 0);
+      }
+
+      // List tokens from a series containing none
+      {
+         BOOST_TEST_MESSAGE("Querying all tokens from Series B1: expecting 3");
+         list = db_api.list_tokens_by_series_name(series_b_name); // Without any filter
+         BOOST_CHECK_EQUAL(list.size(), 3);
+         BOOST_CHECK(list[0].token_id == token_B1_id);
+         BOOST_CHECK(list[1].token_id == token_B2_id);
+         BOOST_CHECK(list[2].token_id == token_B3_id);
+
+         list = db_api.list_tokens_by_series_name(series_b_name, 2); // Without any lower bound
+         BOOST_CHECK_EQUAL(list.size(), 2);
+         BOOST_CHECK(list[0].token_id == token_B1_id);
+         BOOST_CHECK(list[1].token_id == token_B2_id);
+
+         list = db_api.list_tokens_by_series_name(series_b_name, 10,
+                                                  non_existing_token_id);  // With a non-existent lower bound
+         BOOST_CHECK_EQUAL(list.size(), 0);
+      }
+
+   } FC_LOG_AND_RETHROW()
+}
+
 BOOST_AUTO_TEST_SUITE_END()

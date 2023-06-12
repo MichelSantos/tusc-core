@@ -131,12 +131,19 @@ namespace graphene {
 
       struct by_nft_token_name;
       struct by_nft_token_asset_id;
+      struct by_nft_token_series_id;
       typedef multi_index_container<
          nft_token_object,
          indexed_by<
             ordered_unique< tag<by_id>, member< object, object_id_type, &object::id > >,
             ordered_unique< tag<by_nft_token_name>, member<nft_token_object, string, &nft_token_object::token_name> >,
-            ordered_unique< tag<by_nft_token_asset_id>, member<nft_token_object, asset_id_type, &nft_token_object::token_id> >
+            ordered_unique< tag<by_nft_token_asset_id>, member<nft_token_object, asset_id_type, &nft_token_object::token_id> >,
+            ordered_unique <tag<by_nft_token_series_id>,
+               composite_key<nft_token_object,
+                  member<nft_token_object, asset_id_type, &nft_token_object::series_id>,
+                  member<object, object_id_type, &object::id>
+               >
+            >
          >
       > nft_token_multi_index_type;
       typedef generic_index<nft_token_object, nft_token_multi_index_type> nft_token_index;

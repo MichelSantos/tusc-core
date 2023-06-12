@@ -252,6 +252,11 @@ class database_api_impl : public std::enable_shared_from_this<database_api_impl>
       vector<nft_series_object> list_series(optional<uint32_t> limit = 101,
                                             optional<nft_series_id_type> start_id = optional<nft_series_id_type>()) const;
 
+      optional<nft_token_object> get_token_by_asset(const std::string& token_name_or_id) const;
+      vector<nft_token_object> list_tokens_by_series_name(const std::string& series_name,
+                                                          optional<uint32_t> limit = 101,
+                                                          optional<nft_token_id_type> start_id = optional<nft_token_id_type>()) const;
+
    //private:
 
       ////////////////////////////////////////////////
