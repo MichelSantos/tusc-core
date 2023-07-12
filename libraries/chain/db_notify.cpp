@@ -352,6 +352,10 @@ struct get_impacted_account_visitor
          _impacted.insert( *(op.provisioner) );
       }
    }
+   void operator()( const nft_return_operation& op )
+   {
+      _impacted.insert( op.fee_payer() ); // Bearer
+   }
 };
 
 } // namespace detail

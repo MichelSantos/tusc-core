@@ -150,6 +150,36 @@ namespace graphene {
           */
          account_id_type fee_payer() const { return manager; }
       };
+
+      struct nft_return_operation : public base_operation {
+         struct fee_parameters_type {
+            uint64_t fee = 10 * GRAPHENE_BLOCKCHAIN_PRECISION;
+         };
+
+         /// Paid to the network
+         asset fee;
+
+         /// The amount of an asset to transfer back into the associated Series Inventory.
+         /// The asset_id embedded within the amount determines which Series Inventory is associated.
+         asset amount;
+
+         /// Bearer of this amount
+         account_id_type bearer;
+
+         /// for future expansion
+         extensions_type extensions;
+
+         /***
+          * @brief Perform simple validation of this object
+          */
+         void validate() const;
+
+         /**
+          * @brief Who will pay the fee
+          */
+         account_id_type fee_payer() const { return bearer; }
+
+      };
    }
 }
 
@@ -172,6 +202,13 @@ FC_REFLECT( graphene::protocol::nft_primary_transfer_operation,
 (fee)(amount)(to)(memo)(manager)(provisioner)(extensions)
 )
 
+FC_REFLECT( graphene::protocol::nft_return_operation::fee_parameters_type, (fee)
+)
+
+FC_REFLECT( graphene::protocol::nft_return_operation,
+(fee)(bearer)(amount)(extensions)
+)
+
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation )
 
@@ -180,3 +217,6 @@ GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operation 
 
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfer_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfer_operation )
+
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_return_operation::fee_parameters_type )
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_return_operation )

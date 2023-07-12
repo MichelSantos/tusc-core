@@ -78,8 +78,18 @@ namespace graphene {
 
          FC_ASSERT(amount.amount > 0, "Amount of a primary transfer should be positive");
       }
+
+      void nft_return_operation::validate() const {
+         const asset_id_type &core = asset_id_type();
+
+         FC_ASSERT(fee.amount >= 0, "Fee amount should not be negative");
+         FC_ASSERT(fee.asset_id == core, "The fee should be paid in core asset");
+
+         FC_ASSERT(amount.amount > 0, "Amount of a return should be positive");
+      }
    }
 }
+
 
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation::fee_parameters_type )
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation )
@@ -89,3 +99,6 @@ GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_mint_operatio
 
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfer_operation::fee_parameters_type )
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfer_operation )
+
+GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_return_operation::fee_parameters_type )
+GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_return_operation )
