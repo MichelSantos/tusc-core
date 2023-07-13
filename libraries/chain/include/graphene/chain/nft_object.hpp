@@ -124,9 +124,15 @@ namespace graphene {
          /// Current amount of token subdivisions in Series Inventory offered for Primary Sale
          share_type amount_on_primary_sale;
 
+         /// Current amount in circulation
+         share_type amount_in_circulation() const;
+
          /// Current backing behind all token subdivisions
          /// Should equal amount_in_circulation * req_backing_per_subdivision in subdivisions of the req_backing_per_subdivision
          asset current_backing;
+
+         /// Whether backing is required
+         bool is_backable() const;
       };
 
       struct by_nft_token_name;

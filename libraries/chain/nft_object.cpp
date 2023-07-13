@@ -25,5 +25,17 @@
 
 using namespace graphene::chain;
 
+// Derive the amount in circulation from the definition
+// amount_minted = amount_in_inventory + amount_in_circulation + amount_burned
+// Therefore
+// amount_in_circulation = amount_minted - amount_in_inventory - amount_burned
+share_type nft_token_object::amount_in_circulation() const {
+   return amount_minted - amount_in_inventory - amount_burned;
+}
+
+bool nft_token_object::is_backable() const {
+   return req_backing_per_subdivision.amount > 0;
+}
+
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::chain::nft_series_object )
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::chain::nft_token_object )
