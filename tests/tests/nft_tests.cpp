@@ -52,6 +52,11 @@ struct nft_database_fixture : database_fixture {
       set_expiration(db, trx);
    }
 
+   void advance_past_m2_hardfork() {
+      generate_blocks(HARDFORK_NFT_M2_TIME);
+      set_expiration(db, trx);
+   }
+
    // Create and asset and series from a name
    const asset_id_type create_asset_and_series(string series_name,
                                                account_id_type issuer_id, private_key_type issuer_priv_key,
@@ -1939,6 +1944,802 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_before_hardfork) {
          // sign(trx, creator_private_key); // No signature required for operations paid by GRAPHENE_TEMP_ACCOUNT
          REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Not allowed until");
       }
+   } FC_LOG_AND_RETHROW()
+}
+
+
+/**
+ * Test the complete returns of NFT tokens
+ * - Token #1 is un-backed
+ * - Token #2 is backed
+ */
+BOOST_AUTO_TEST_CASE(nft_return_of_complete_returns_a) {
+   try {
+      INVOKE(nft_primary_transfer_a);
+      advance_past_m2_hardfork();
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      share_type alice_init_balance_core = get_balance(alice_id, core_id);
+      share_type bob_init_balance_core = get_balance(bob_id, core_id);
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+      graphene::chain::nft_return_operation return_op;
+
+
+      ///
+      /// Return of token #1 which:
+      /// - has 100 subdivision in a whole unit
+      /// - requires no backing for extraction from Inventory
+      ///
+      // Verify the Inventory's balance after the return
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      auto token_itr = token_name_idx.find(sub_asset_1_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object& t1_1 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 60);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t1_1.current_backing == asset(0, core_id));
+      // Verify everyone's balances after the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_1_id), 40);
+      // Core balances should remain unchanged
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+      // Charlie attempts to return 41 subdivisions when he only own 40 subdivisions
+      BOOST_TEST_MESSAGE("Return #1: Invalid return of 100.1% of Token #1");
+      const share_type t1_return1 = 41;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t1_return1, sub_asset_1_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the bearer's available balance");
+
+      // Charlie attempts to return 40 of his 40 subdivisions (40%) of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #2: Return of 40% of Token #1");
+      const share_type t1_return2 = 40;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t1_return2, sub_asset_1_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      PUSH_TX(db, trx);
+
+      // Verify the Inventory's balance after the return
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 60 + t1_return2.value);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t1_1.current_backing == asset(0, core_id));
+      // Verify everyone's balances after the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_1_id), 40 - t1_return2.value);
+      // Core balances should remain unchanged
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+      ///
+      /// Charlie attempts to return 1 subdivisions (1%) of the token to the Inventory DESPITE having none remaining
+      ///
+      BOOST_TEST_MESSAGE("Return #3: Invalid return of 1% of Token #1");
+      const share_type return3 = 1;
+      return_op = nft_return_operation();
+      return_op.amount = asset(return3, sub_asset_1_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the bearer's available balance");
+
+
+      ///
+      /// Return of token #2 which:
+      /// - has 1000 subdivision in a whole unit
+      /// - is backed by 500 core subdivisions for every subdivision of NFT
+      ///
+      // Verify the Inventory's balance before the return
+      BOOST_TEST_MESSAGE("Verifying the state of Series Inventory BEFORE Return #1 of Token #2");
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object& t2_0 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_0.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_0.amount_in_inventory.value, 0); // After extraction of 100%
+      BOOST_REQUIRE_EQUAL(t2_0.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_0.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_0.current_backing == asset(500000, core_id)); // (1000 NFT) * (500 CORE / NFT)
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000);
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+      // Charlie attempts to return 1001 of his 1000 subdivisions (100.1%) of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #1: Invalid return of 100.1% of Token #2");
+      const share_type t2_return1 = 1001;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return1, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the bearer's available balance");
+
+      // Verify the Inventory's balance after the failed return
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &t2_1 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_1.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_1.amount_in_inventory.value, 0); // After return of 100%
+      BOOST_REQUIRE_EQUAL(t2_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_1.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_1.current_backing == asset(500000, core_id)); // (1000 NFT) * (500 CORE / NFT)
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000);
+      // Core balances should remain unchanged
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+      // Charlie attempts to return 1000 of his 1000 subdivisions (100.0%) of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #2: Return of 100% of Token #2");
+      const share_type t2_return2 = 1000;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return2, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      PUSH_TX(db, trx);
+
+      // Verify the Inventory's balance after the return
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &t2_2 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_2.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_2.amount_in_inventory.value, 1000); // After return of 1000 subdivisions
+      BOOST_REQUIRE_EQUAL(t2_2.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_2.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_2.current_backing == (asset(500000, core_id) - asset(500000, core_id)) ); // Reduced by redemption
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 0); // After return of 1000 subdivisions
+      // Core balances should remain unchanged EXCEPT for Charlie's
+      // which are increased due to the redemption
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id),
+                          charlie_init_balance_core.value + 500000); // (1000 NFT) * (500 CORE / NFT)
+
+      ///
+      /// Charlie attempts to return 1 subdivisions (1%) of the token to the Inventory DESPITE having none remaining
+      ///
+      BOOST_TEST_MESSAGE("Return #3: Invalid return of 1% of Token #2");
+      const share_type t2_return3 = 1;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return3, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the bearer's available balance");
+
+   } FC_LOG_AND_RETHROW()
+}
+
+
+/**
+ * Test partial returns of NFT tokens
+ * - Token #1 is un-backed
+ * - Token #2 is backed
+ */
+BOOST_AUTO_TEST_CASE(nft_return_of_partial_returns_a) {
+   try {
+      INVOKE(nft_primary_transfer_a);
+      advance_past_m2_hardfork();
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      share_type alice_init_balance_core = get_balance(alice_id, core_id);
+      share_type bob_init_balance_core = get_balance(bob_id, core_id);
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+      graphene::chain::nft_return_operation return_op;
+
+
+      ///
+      /// Return of token #1 which:
+      /// - has 100 subdivision in a whole unit
+      /// - requires no backing for extraction from Inventory
+      ///
+      // Verify the Inventory's balance after the return
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      auto token_itr = token_name_idx.find(sub_asset_1_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object& t1_1 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 60);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t1_1.current_backing == asset(0, core_id));
+      // Verify everyone's balances after the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_1_id), 40);
+      // Core balances should remain unchanged
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+      // Charlie attempts to return 10 of his 40 subdivisions (10%) of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #1: Return of 10% of Token #1");
+      const share_type return1 = 10;
+      return_op = nft_return_operation();
+      return_op.amount = asset(return1, sub_asset_1_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      PUSH_TX(db, trx);
+
+      // Verify the Inventory's balance after the return
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 60 + return1.value);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t1_1.current_backing == asset(0, core_id));
+      // Verify everyone's balances after the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_1_id), 40 - return1.value);
+      // Core balances should remain unchanged
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+
+      ///
+      // Charlie attempts to return 30 of his 30 subdivisions (30%) of the token to the Inventory
+      ///
+      BOOST_TEST_MESSAGE("Return #2: Return of 30% of Token #1");
+      const share_type return2 = 30;
+      return_op = nft_return_operation();
+      return_op.amount = asset(return2, sub_asset_1_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      PUSH_TX(db, trx);
+
+      // Verify the Inventory's balance after the return
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 60 + return1.value + return2.value);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t1_1.current_backing == asset(0, core_id));
+      // Verify everyone's balances after the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_1_id), 40 - return1.value - return2.value);
+      // Core balances should remain unchanged
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+
+      ///
+      // Charlie attempts to return 1 subdivisions (1%) of the token to the Inventory DESPITE having none remaining
+      ///
+      BOOST_TEST_MESSAGE("Return #3: Invalid return of 1% of Token #1");
+      const share_type return3 = 1;
+      return_op = nft_return_operation();
+      return_op.amount = asset(return3, sub_asset_1_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the bearer's available balance");
+
+
+      ///
+      /// Return of token #2 which:
+      /// - has 1000 subdivision in a whole unit
+      /// - is backed by 500 core subdivisions for every subdivision of NFT
+      ///
+      // Verify the Inventory's balance before the return
+      BOOST_TEST_MESSAGE("Verifying the state of Series Inventory BEFORE Return #1 of Token #2");
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object& t2_0 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_0.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_0.amount_in_inventory.value, 0); // After extraction of 100%
+      BOOST_REQUIRE_EQUAL(t2_0.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_0.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_0.current_backing == asset(500000, core_id)); // (1000 NFT) * (500 CORE / NFT)
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000);
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+      // Charlie attempts to return 1001 of his 1000 subdivisions (100.1%) of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #1: Invalid return of 100.1% of Token #2");
+      const share_type t2_return1 = 1001;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return1, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the bearer's available balance");
+
+      // Verify the Inventory's balance after the failed return
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &t2_1 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_1.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_1.amount_in_inventory.value, 0); // After return of 100%
+      BOOST_REQUIRE_EQUAL(t2_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_1.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_1.current_backing == asset(500000, core_id)); // (1000 NFT) * (500 CORE / NFT)
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000);
+      // Core balances should remain unchanged
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+      // Charlie attempts to return 600 of the 1000 subdivisions (60%) of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #2: Return of 60% of Token #2");
+      const share_type t2_return2 = 600;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return2, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      PUSH_TX(db, trx);
+      // Verify the Inventory's balance after the return
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &t2_2 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_2.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_2.amount_in_inventory.value, 0 + 600); // After return of 600 subdivisions
+      BOOST_REQUIRE_EQUAL(t2_2.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_2.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_2.current_backing == (asset(500000, core_id)
+                                             - asset(300000, core_id)) ); // Reduced by redemption of (600 NFT) * (500 CORE / NFT)
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000 - 600); // After return of 600 subdivisions
+      // Core balances should remain unchanged EXCEPT for Charlie's
+      // which are increased due to the redemption
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id),
+                          charlie_init_balance_core.value + 300000); // (600 NFT) * (500 CORE / NFT)
+
+      // Charlie attempts to return 300 of the 1000 subdivisions (30%) of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #3: Return of 30% of Token #2");
+      const share_type t2_return3 = 300;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return3, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      PUSH_TX(db, trx);
+      // Verify the Inventory's balance after the return
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &t2_3 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_3.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_3.amount_in_inventory.value, 0 + 600 + 300); // After return of 900 subdivisions
+      BOOST_REQUIRE_EQUAL(t2_3.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_3.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_3.current_backing == (asset(500000, core_id)
+                                             - asset(300000, core_id)
+                                             - asset(150000, core_id)) ); // Reduced by redemption of (900 NFT) * (500 CORE / NFT)
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000 - 600 - 300); // After return of 900 subdivisions
+      // Core balances should remain unchanged EXCEPT for Charlie's
+      // which are increased due to the redemption
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id),
+                          charlie_init_balance_core.value + 300000 + 150000); // (900 NFT) * (500 CORE / NFT)
+
+      // Charlie attempts to return 101 of his 100 subdivisions of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #4: Invalid return of Token #2 due to insufficient balance");
+      const share_type t2_return4 = 101;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return4, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the bearer's available balance");
+
+      // Charlie attempts to return 100 of the 1000 subdivisions (10%) of the token to the Inventory
+      BOOST_TEST_MESSAGE("Return #5: Return of 10% of Token #2");
+      const share_type t2_return5 = 100;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return5, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      PUSH_TX(db, trx);
+      // Verify the Inventory's balance after the return
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &t2_5 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_5.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_5.amount_in_inventory.value, 0 + 600 + 300 + 100); // After return of 1000 subdivisions
+      BOOST_REQUIRE_EQUAL(t2_5.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_5.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_5.current_backing == (asset(500000, core_id)
+                                             - asset(300000, core_id)
+                                             - asset(150000, core_id)
+                                             - asset(50000, core_id)) ); // Reduced by redemption of (1000 NFT) * (500 CORE / NFT)
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000 - 600 - 300 - 100); // After return of 1000 subdivisions
+      // Core balances should remain unchanged EXCEPT for Charlie's
+      // which are increased due to the redemption
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id),
+                          charlie_init_balance_core.value + 300000 + 150000 + 50000); // (1000 NFT) * (500 CORE / NFT)
+
+      ///
+      /// Charlie attempts to return 1 subdivisions of the token to the Inventory DESPITE having none remaining
+      ///
+      BOOST_TEST_MESSAGE("Return #6: Invalid return of Token #2 due to insufficient balance");
+      const share_type t2_return6 = 1;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return6, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Must be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the bearer's available balance");
+
+   } FC_LOG_AND_RETHROW()
+}
+
+
+/**
+ * Test invalid returns of NFT tokens
+ * - Token #1 is un-backed
+ * - Token #2 is backed
+ */
+BOOST_AUTO_TEST_CASE(nft_invalid_returns_a) {
+   try {
+      INVOKE(nft_primary_transfer_a);
+      advance_past_m2_hardfork();
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      share_type alice_init_balance_core = get_balance(alice_id, core_id);
+      share_type bob_init_balance_core = get_balance(bob_id, core_id);
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+      graphene::chain::nft_return_operation return_op;
+
+      ///
+      /// Return of token #2 which:
+      /// - has 1000 subdivision in a whole unit
+      /// - is backed by 500 core subdivisions for every subdivision of NFT
+      ///
+      // Verify the Inventory's balance before the return
+      BOOST_TEST_MESSAGE("Verifying the state of Series Inventory BEFORE checking invalid returns of Token #2");
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      auto token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object& t2_0 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t2_0.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(t2_0.amount_in_inventory.value, 0); // After extraction of 100%
+      BOOST_REQUIRE_EQUAL(t2_0.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_0.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t2_0.current_backing == asset(500000, core_id)); // (1000 NFT) * (500 CORE / NFT)
+      // Verify everyone's balances before the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000);
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+
+      BOOST_TEST_MESSAGE("Testing invalid returns of Token #2");
+
+      // Bob attempts to return Charlie's subdivisions to the Inventory
+      const share_type t2_return1 = 1000;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return1, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, bob_private_key); // Should be signed by the bearer
+      GRAPHENE_REQUIRE_THROW(PUSH_TX(db, trx), fc::exception);
+
+      // Charlie attempts to return zero/no subdivisions to the Inventory
+      const share_type t2_return2A = 0;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return2A, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Should be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a return should be positive");
+
+      // Charlie attempts to return negative subdivisions to the Inventory
+      const share_type t2_return2B = -5;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t2_return2B, sub_asset_2_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Should be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a return should be positive");
+
+      ///
+      /// Attempt to return an asset that is NOT an NFT despite being a sub-asset of the series.
+      /// Note that the sub-asset has NOT been associated with the series through a minting process.
+      ///
+      BOOST_TEST_MESSAGE("Attempting an invalid return of a sub-asset that is NOT an NFT");
+      // Create the sub-asset
+      const string sub_asset_3_name = series_name + ".WILD";
+      const asset_object &sub_asset_3_obj = create_user_issued_asset(sub_asset_3_name, alice_id(db), 0, 1000000, 2);
+      const asset_id_type sub_asset_3_id = sub_asset_3_obj.id;
+      const asset_dynamic_data_object sub_asset_3_dd = sub_asset_3_obj.dynamic_data(db);
+      BOOST_CHECK_EQUAL(sub_asset_3_obj.precision, 2);
+      BOOST_CHECK_EQUAL(sub_asset_3_dd.current_max_supply.value, 1000000);
+      BOOST_CHECK_EQUAL(sub_asset_3_obj.options.initial_max_supply.value, 1000000);
+
+      // Issue an amount to charlie
+      issue_uia(charlie_id, graphene::chain::asset(12345, sub_asset_3_id));
+
+      // Have charlie attempt to return them
+      const share_type t3_return1 = 1;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t3_return1, sub_asset_3_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Should be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Returns may only be performed for NFT tokens");
+
+      ///
+      /// Attempt to return an asset that is NOT an NFT nor a sub-asset of the series
+      ///
+      BOOST_TEST_MESSAGE("Attempting an invalid return of an asset that is NOT an NFT");
+      // Create the sub-asset
+      const string asset_4_name = "RANDO";
+      const asset_object &asset_4_obj = create_user_issued_asset(asset_4_name, alice_id(db), 0, 1000000, 2);
+      const asset_id_type asset_4_id = asset_4_obj.id;
+      const asset_dynamic_data_object asset_4_dd = asset_4_obj.dynamic_data(db);
+      BOOST_CHECK_EQUAL(asset_4_obj.precision, 2);
+      BOOST_CHECK_EQUAL(asset_4_dd.current_max_supply.value, 1000000);
+      BOOST_CHECK_EQUAL(asset_4_obj.options.initial_max_supply.value, 1000000);
+
+      // Issue an amount to charlie
+      issue_uia(charlie_id, graphene::chain::asset(67890, asset_4_id));
+
+      // Have charlie attempt to return them
+      const share_type t4_return1 = 1;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t4_return1, asset_4_id);
+      return_op.bearer = charlie_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, charlie_private_key); // Should be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Returns may only be performed for NFT tokens");
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test invalid returns of NFT tokens
+ * - Token #1 is backed, and has permissions and flags for testing of whitelisting and transfer-restriction
+ */
+BOOST_AUTO_TEST_CASE(nft_invalid_returns_b) {
+   try {
+      // Scenario B contains a token that is already configured with whitelisting and transfer-restriction
+      INVOKE(nft_primary_transfer_b);
+      advance_past_m2_hardfork();
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(creator);
+      GET_ACTOR(mgr);
+      GET_ACTOR(beneficiary);
+      GET_ACTOR(treasury);
+      GET_ACTOR(doug);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
+      graphene::chain::nft_return_operation return_op;
+
+      // Verify the Inventory's balance before the return
+      BOOST_TEST_MESSAGE("");
+      BOOST_TEST_MESSAGE("Scenario B");
+      BOOST_TEST_MESSAGE("Verifying the state of Series Inventory BEFORE checking invalid returns of Token #1");
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      auto token_itr = token_name_idx.find(sub_asset_1_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object& t1_0 = *token_itr;
+
+      // Verify backing
+      const share_type expected_required_backing = 20000; // (40 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_REQUIRE_EQUAL(t1_0.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_0.amount_in_inventory.value, 60); // = 100 - 40
+      BOOST_REQUIRE_EQUAL(t1_0.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_0.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t1_0.current_backing == asset(expected_required_backing, core_id));
+
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(beneficiary_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(mgr_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 40);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, core_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(GRAPHENE_TEMP_ACCOUNT, core_id), 0);
+
+      ///
+      /// Test transfer restriction
+      ///
+      // Doug attempts to return 1 subdivision of the token
+      const share_type t1_return1 = 1;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t1_return1, sub_asset_1_id);
+      return_op.bearer = doug_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, doug_private_key); // Should be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "has transfer_restricted flag enabled");
+
+      // Disable the transfer restriction
+      asset_update_operation uop;
+      uop.issuer = creator_id;
+      uop.asset_to_update = sub_asset_1_id;
+      uop.new_options = sub_asset_1_id(db).options;
+      uop.new_options.flags = sub_asset_1_id(db).options.flags ^ transfer_restricted;
+      trx.clear();
+      trx.operations.push_back(uop);
+      sign(trx, creator_private_key); // Should be signed by the issuer
+      PUSH_TX(db, trx);
+
+      // Attempt to return again
+      // The attempt should succeed because transfer restrictions have been removed
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, doug_private_key); // Should be signed by the bearer
+      PUSH_TX(db, trx);
+
+      // Verify backing
+      BOOST_REQUIRE_EQUAL(t1_0.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_0.amount_in_inventory.value, 61); // = 100 - 40 + 1
+      BOOST_REQUIRE_EQUAL(t1_0.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_0.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t1_0.current_backing
+                    == asset(expected_required_backing - 500, core_id)); // = (39 NFT subdivision) * (500 core / NFT subdivision)
+
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(beneficiary_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(mgr_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 39); // = 49 - 1
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, core_id), 500); // = (1 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_REQUIRE_EQUAL(get_balance(GRAPHENE_TEMP_ACCOUNT, core_id), 0);
+
+
+      ///
+      /// Test whitelisting
+      ///
+      // Create a whitelist for the token
+      BOOST_TEST_MESSAGE( "Creating a whitelist authority for Token #1" );
+      ACTOR(izzy)
+      upgrade_to_lifetime_member( izzy_id ); // <-- Izzy will need to be a LTM to handle whitelisting duties
+      uop = asset_update_operation();
+      uop.issuer = creator_id;
+      uop.asset_to_update = sub_asset_1_id;
+      uop.new_options = sub_asset_1_id(db).options;
+      uop.new_options.whitelist_authorities.insert(izzy_id);
+      trx.clear();
+      trx.operations.push_back(uop);
+      sign(trx, creator_private_key); // Should be signed by the issuer
+      PUSH_TX(db, trx);
+      BOOST_CHECK(sub_asset_1_id(db).options.whitelist_authorities.find(izzy_id) != sub_asset_1_id(db).options.whitelist_authorities.end());
+
+      // Doug attempts to return 3 subdivision of the token
+      const share_type t1_return2 = 3;
+      return_op = nft_return_operation();
+      return_op.amount = asset(t1_return2, sub_asset_1_id);
+      return_op.bearer = doug_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, doug_private_key); // Should be signed by the bearer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "is not whitelisted for asset");
+
+      // Authorize the returning account
+      account_whitelist_operation wop = account_whitelist_operation();
+      wop.authorizing_account = izzy_id;
+      wop.account_to_list = doug_id;
+      wop.new_listing = account_whitelist_operation::white_listed;
+      trx.clear();
+      trx.operations.push_back(wop);
+      sign(trx, izzy_private_key);
+      PUSH_TX(db, trx);
+
+      // Attempt to return again
+      // The attempt should succeed because the sender and recipient are whitelisted
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, doug_private_key); // Should be signed by the bearer
+      PUSH_TX(db, trx);
+
+      // Verify backing
+      const nft_token_object &t1_1 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 64); // = 100 - 40 + 1 + 3
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(t1_1.current_backing == asset(expected_required_backing - 2000, core_id)); // After some redemption
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(beneficiary_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(mgr_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 40 - 1 - 3); // After returning 4 subdivisions
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, core_id), 2000); // (4 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_REQUIRE_EQUAL(get_balance(GRAPHENE_TEMP_ACCOUNT, core_id), 0);
+
    } FC_LOG_AND_RETHROW()
 }
 
