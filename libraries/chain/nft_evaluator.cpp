@@ -322,15 +322,7 @@ namespace graphene {
                       ("op_mgr", op.manager)
             );
 
-            // Verify conventional transfer restrictions: is the Series Issuer authorized to send the asset
-            GRAPHENE_ASSERT(is_authorized_asset(d, series_issuer, asset_type),
-                            transfer_from_account_not_whitelisted,
-                            "Series Issuer account ${issuer} is not whitelisted for asset ${asset}",
-                            ("issuer", series_issuer)
-                            ("asset", op.amount.asset_id)
-            );
-
-            // Verify conventional transfer restrictions: is the recipient authorized to receive the asset
+            // Verify conventional transfer restrictions: is the recipient authorized to transact with the asset
             GRAPHENE_ASSERT(is_authorized_asset(d, to_account, asset_type),
                             transfer_to_account_not_whitelisted,
                             "'to' account ${to} is not whitelisted for asset ${asset}",
