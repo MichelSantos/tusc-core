@@ -403,5 +403,112 @@ namespace graphene {
          } FC_CAPTURE_AND_RETHROW((op))
       }
 
+      void_result nft_return_evaluator::do_evaluate(const nft_return_operation &op) {
+         try {
+            const graphene::chain::database& d = db();
+
+            const account_object& bearer_account = op.bearer(d);
+            const asset_object& asset_type = op.amount.asset_id(d);
+
+            // Verify that the asset is a minted token object
+            const auto& token_id_idx = d.get_index_type<nft_token_index>().indices().get<by_nft_token_asset_id>();
+            auto token_itr = token_id_idx.find(op.amount.asset_id);
+            const bool& is_nft = (token_itr != token_id_idx.end());
+            FC_ASSERT(is_nft, "Returns may only be performed for NFT tokens");
+            const nft_token_object &nft_obj = *token_itr;
+            _ptr_token_obj = &nft_obj;
+
+            // Determine information about the series and its issuer
+            const auto &series_idx = d.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+            auto series_itr = series_idx.find(nft_obj.series_id);
+            FC_ASSERT(series_itr != series_idx.end());
+            const nft_series_object &series_obj = *series_itr;
+            const asset_object& series_asset_obj = series_obj.asset_id(d);
+            const account_object& series_issuer = series_asset_obj.issuer(d);
+
+            // Verify conventional transfer restrictions: is the asset transfer restricted
+            if( asset_type.is_transfer_restricted() ) {
+               // Only the Series Issuer may return the token to the Inventory
+               GRAPHENE_ASSERT(bearer_account.id == series_issuer.id,
+                               transfer_restricted_transfer_asset,
+                               "Asset ${asset} has transfer_restricted flag enabled",
+                               ("asset", op.amount.asset_id)
+               );
+            }
+
+            // Verify conventional transfer restrictions: is the bearer authorized to transact with the asset
+            GRAPHENE_ASSERT(is_authorized_asset(d, bearer_account, asset_type),
+                            transfer_from_account_not_whitelisted,
+                            "Bearer ${bearer} is not whitelisted for asset ${asset}",
+                            ("bearer", bearer_account)
+                            ("asset", op.amount.asset_id)
+            );
+
+            // Verify that the Bearer has sufficient assets to satisfy the return
+            FC_ASSERT(op.amount.asset_id == nft_obj.token_id); // Redundant check from earlier in the function
+            FC_ASSERT(op.amount.amount > 0); // Redundant check from the operation's validate()
+            const asset &bearer_balance = d.get_balance(op.bearer, op.amount.asset_id);
+            const bool sufficient_balance = op.amount.amount <= bearer_balance.amount;
+            FC_ASSERT(sufficient_balance,
+                      "The amount of the return (${returning} subdivisions) exceeds the bearer's available balance of (${available} subdivisions)",
+                      ("returning", op.amount.amount)
+                      ("available", bearer_balance.amount)
+            );
+
+            // Extra consistency check
+            // Verify whether the amount being returned is consistent with the amount expected to be in circulation
+            const share_type amount_in_circulation = nft_obj.amount_in_circulation();
+            FC_ASSERT(op.amount.amount <= amount_in_circulation,
+                      "Inconsistency Warning: The amount of the return (${returning} subdivisions) exceeds the amount in circulation (${circulation} subdivisions)",
+                      ("returning", op.amount.amount)
+                         ("circulation", amount_in_circulation)
+            );
+
+            // Verify the Inventory has adequate backing requirements
+            if (nft_obj.is_backable()) {
+               // As the NFT is backable, verify that sufficient backing is present in the Inventory
+               const fc::uint128_t &expected_redemption_uint128
+                  = fc::uint128_t(op.amount.amount.value) * nft_obj.req_backing_per_subdivision.amount.value;
+               FC_ASSERT(expected_redemption_uint128 <= nft_obj.current_backing.amount,
+                         "The NFT's Inventory has insufficient backing to accommodate a redemption");
+               _redemption_amount = asset(static_cast<int64_t>(expected_redemption_uint128),
+                                          nft_obj.req_backing_per_subdivision.asset_id);
+            }
+
+            return void_result();
+         } FC_CAPTURE_AND_RETHROW((op))
+      }
+
+      void_result nft_return_evaluator::do_apply(const nft_return_operation &op) {
+         try {
+            graphene::chain::database &d = db();
+
+            const nft_token_object& token_obj = *_ptr_token_obj;
+
+            // Withdraw the NFT from the bearer's account
+            d.adjust_balance(op.bearer, -op.amount);
+
+            // Update the NFT object's balances
+            const bool& is_redemption = _redemption_amount.amount.value > 0;
+            const share_type& expected_redemption_amount = _redemption_amount.amount.value;
+            d.modify(token_obj, [&op,&is_redemption,&expected_redemption_amount](nft_token_object &obj) {
+               // Increase the token amount in the Inventory
+               obj.amount_in_inventory += op.amount.amount;
+
+               // Decrease the backing in the Inventory **if** it is a redemption
+               if (is_redemption) {
+                  obj.current_backing.amount -= expected_redemption_amount;
+               }
+            });
+
+            // Increase the bearer's balance with backing **if** it is a redemption
+            if (is_redemption) {
+               d.adjust_balance(op.bearer, _redemption_amount);
+            }
+
+            return void_result();
+         } FC_CAPTURE_AND_RETHROW((op))
+      }
+
    } // namespace chain
 } // namespace graphene

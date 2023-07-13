@@ -66,5 +66,17 @@ namespace graphene {
          asset _required_backing;
       };
 
+      class nft_return_evaluator : public evaluator<nft_return_evaluator> {
+      public:
+         typedef nft_return_operation operation_type;
+
+         void_result do_evaluate(const nft_return_operation &o);
+
+         void_result do_apply(const nft_return_operation &o);
+
+         const nft_token_object* _ptr_token_obj = nullptr;
+         asset _redemption_amount;
+      };
+
    } // namespace graphene
 } // namespace graphene

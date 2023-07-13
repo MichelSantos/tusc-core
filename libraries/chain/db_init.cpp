@@ -141,6 +141,7 @@ void database::initialize_evaluators()
    register_evaluator<nft_series_create_evaluator>();
    register_evaluator<nft_mint_evaluator>();
    register_evaluator<nft_primary_transfer_evaluator>();
+   register_evaluator<nft_return_evaluator>();
 }
 
 void database::initialize_indexes()
