@@ -111,11 +111,6 @@ struct nft_database_fixture : database_fixture {
 BOOST_FIXTURE_TEST_SUITE( nft_tests, nft_database_fixture
 )
 
-void advance_past_nft_m1_hardfork(database_fixture *db_fixture) {
-   db_fixture->generate_blocks(HARDFORK_NFT_M1_TIME);
-   set_expiration(db_fixture->db, db_fixture->trx);
-}
-
 /**
  * Test a simple and valid creation of an NFT Series
  */
@@ -126,7 +121,7 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_a ) {
       int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
       transfer(committee_account, alice_id, graphene::chain::asset(init_balance));
       transfer(committee_account, bob_id, graphene::chain::asset(init_balance));
-      advance_past_nft_m1_hardfork(this);
+      advance_past_m1_hardfork();
       const account_id_type invalid_account_id(9999999); // Non-existent account
 
       // Alice creates an asset
@@ -253,7 +248,7 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_invalid_a ) {
       int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
       transfer(committee_account, alice_id, graphene::chain::asset(init_balance));
       transfer(committee_account, bob_id, graphene::chain::asset(init_balance));
-      advance_past_nft_m1_hardfork(this);
+      advance_past_m1_hardfork();
       graphene::chain::nft_series_create_operation create_op;
 
       // Alice creates an asset
@@ -1074,7 +1069,7 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_a) {
 
       // Alice attempts to primary transfer 400 subdivisions (40%) of the token from the Inventory
       // provisioned by Alice
-      BOOST_TEST_MESSAGE("Primary transfer of 40% of Token #1");
+      BOOST_TEST_MESSAGE("Primary transfer of 40% of Token #2");
       ptx_op = nft_primary_transfer_operation();
       ptx_op.amount = asset(400, sub_asset_2_id);
       ptx_op.to = charlie_id;
@@ -1510,7 +1505,6 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_b_proposal_provisioned_by_treasury) {
       trx.operations.push_back(prop_update_op);
       sign(trx, treasury_private_key);
       PUSH_TX(db, trx);
-wdump((prop_update_op));
 
       // Series Manager approves the proposal
       BOOST_TEST_MESSAGE("Manager approves the single-op NFT proposal");
@@ -1946,6 +1940,15 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_before_hardfork) {
 }
 
 
+/**
+ * Tests of Database API functionality
+ */
+
+/**
+ * Convert an asset ID to a conventional string representation (e.g. "1.3.0")
+ * @param id Asset ID
+ * @return String representation
+ */
 std::string asset_id_to_string(asset_id_type id) {
    std::string asset_id = fc::to_string(id.space_id) +
                           "." + fc::to_string(id.type_id) +
