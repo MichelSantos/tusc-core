@@ -34,7 +34,8 @@
 #include <graphene/chain/database.hpp>
 #include <graphene/chain/hardfork.hpp>
 
-#include <graphene/app/database_api.hpp>
+#include <graphene/app/database_api.hpp> // For testing current state
+#include <graphene/app/api.hpp> // For testing account history
 
 #include "../common/database_fixture.hpp"
 
@@ -3277,6 +3278,95 @@ BOOST_AUTO_TEST_CASE( db_api_tokens ) {
                                                   non_existing_token_id);  // With a non-existent lower bound
          BOOST_CHECK_EQUAL(list.size(), 0);
       }
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test the database API ability to report NFT events in account history
+ */
+BOOST_AUTO_TEST_CASE( db_api_account_history_a ) {
+   try {
+      BOOST_TEST_MESSAGE("Verifying NFT activity in account histories");
+
+      // Initialize with another scenario
+      INVOKE(nft_return_of_complete_returns_a);
+      // Mimic the variables from the invoked test
+      GET_ACTOR(charlie);
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+
+      // To permit the most recent account history to embed itself into a block
+      // and thereby become accessible in account history
+      generate_block();
+      graphene::app::history_api hist_api(app);
+
+      ///
+      /// Inspect Charlie's account history
+      ///
+      vector <operation_history_object> histories;
+      histories = hist_api.get_account_history("charlie");
+      int count = histories.size();
+      // Charlie's history in this scenario should include:
+      // 1 Creation of Charlie's account
+      // 4 NFT Primary Transfer to Charlie
+      // 2 NFT Returns by Charlie
+      BOOST_CHECK(count == 7);
+
+      // The most recent should be the return of Token #
+      operation op;
+
+      // Account histories are sorted in decreasing time order
+      // The first operation should correspond to Charlie's returning 1000 subdivision of Token #2
+      op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<nft_return_operation>());
+      nft_return_operation return_op = op.get<nft_return_operation>();
+      BOOST_CHECK(return_op.bearer == charlie_id);
+      BOOST_CHECK(return_op.amount == asset(1000, sub_asset_2_id));
+
+      // The second operation should correspond to Charlie's returning 40 subdivision of Token #1
+      op = histories[1].op;
+      BOOST_REQUIRE(op.is_type<nft_return_operation>());
+      return_op = op.get<nft_return_operation>();
+      BOOST_CHECK(return_op.bearer == charlie_id);
+      BOOST_CHECK(return_op.amount == asset(40, sub_asset_1_id));
+
+      // The third operation should correspond to Charlie's receipt of 250 subdivision of Token #2
+      op = histories[2].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      nft_primary_transfer_operation ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == charlie_id);
+      BOOST_CHECK(ptx_op.amount == asset(250, sub_asset_2_id));
+
+      // The third operation should correspond to Charlie's receipt of 350 subdivision of Token #2
+      op = histories[3].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == charlie_id);
+      BOOST_CHECK(ptx_op.amount == asset(350, sub_asset_2_id));
+
+      // The third operation should correspond to Charlie's receipt of 400 subdivision of Token #2
+      op = histories[4].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == charlie_id);
+      BOOST_CHECK(ptx_op.amount == asset(400, sub_asset_2_id));
+
+      // The third operation should correspond to Charlie's receipt of 40 subdivision of Token #1
+      op = histories[5].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == charlie_id);
+      BOOST_CHECK(ptx_op.amount == asset(40, sub_asset_1_id));
+
+      // The third operation should correspond to Charlie's account creation
+      op = histories[6].op;
+      BOOST_REQUIRE(op.is_type<account_create_operation>());
+      account_create_operation ac_op = op.get<account_create_operation>();
+      BOOST_CHECK_EQUAL(ac_op.name, "charlie");
 
    } FC_LOG_AND_RETHROW()
 }
