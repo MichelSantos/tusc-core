@@ -226,6 +226,9 @@ struct proposal_operation_hardfork_visitor
    void operator()(const graphene::chain::nft_primary_transfer_operation &op) const {
       FC_ASSERT( HARDFORK_NFT_M1_PASSED(block_time), "Not allowed until the NFT Milestone 1 hardfork" );
    }
+   void operator()(const graphene::chain::nft_return_operation &op) const {
+      FC_ASSERT( HARDFORK_NFT_M2_PASSED(block_time), "Not allowed until the NFT Milestone 2 hardfork" );
+   }
 
    // loop and self visit in proposals
    void operator()(const graphene::chain::proposal_create_operation &v) const {

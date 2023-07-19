@@ -407,6 +407,10 @@ namespace graphene {
          try {
             const graphene::chain::database& d = db();
 
+            // Reject any activity before the hardfork time
+            auto now = d.head_block_time();
+            FC_ASSERT(HARDFORK_NFT_M2_PASSED(now), "NFT Returns are not yet enabled");
+
             const account_object& bearer_account = op.bearer(d);
             const asset_object& asset_type = op.amount.asset_id(d);
 

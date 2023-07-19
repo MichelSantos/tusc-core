@@ -2745,6 +2745,57 @@ BOOST_AUTO_TEST_CASE(nft_invalid_returns_b) {
 
 
 /**
+ * Test the rejection of returns prior to the hardfork
+ */
+BOOST_AUTO_TEST_CASE(nft_returns_before_hardfork) {
+   try {
+      // Initialize
+      ACTORS((creator)(mgr)(treasury)(doug));
+      int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, creator_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, mgr_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, treasury_id, graphene::chain::asset(init_balance));
+
+      // Advance to before the hardfork time
+      generate_blocks(HARDFORK_NFT_M2_TIME - 100);
+
+      // Creator creates an asset
+      const string series_name = "SERIESA";
+      create_user_issued_asset(series_name, creator_id(db), 0);
+
+      // Creator creates a sub-asset
+      const string sub_asset_1_name = "SERIESA.SUB1";
+      const asset_object &sub_asset_1 = create_user_issued_asset(sub_asset_1_name, creator_id(db), 0, 1000000, 2);
+      const asset_id_type sub_asset_1_id = sub_asset_1.id;
+
+      // Reject returns before the hardfork
+      nft_return_operation return_op;
+      return_op.amount = asset(5, sub_asset_1_id);
+      return_op.bearer = doug_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, doug_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "not yet enabled");
+
+      // Reject returns in a proposal before the hardfork
+      {
+         proposal_create_operation pop;
+         pop.review_period_seconds = 86400;
+         uint32_t buffer_seconds = 60 * 60;
+         pop.expiration_time = db.head_block_time() + *pop.review_period_seconds + buffer_seconds;
+         pop.fee_paying_account = GRAPHENE_TEMP_ACCOUNT;
+         pop.proposed_ops.emplace_back(return_op);
+
+         trx.clear();
+         trx.operations.push_back(pop);
+         // sign(trx, creator_private_key); // No signature required for operations paid by GRAPHENE_TEMP_ACCOUNT
+         REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Not allowed until");
+      }
+   } FC_LOG_AND_RETHROW()
+}
+
+
+/**
  * Tests of Database API functionality
  */
 
