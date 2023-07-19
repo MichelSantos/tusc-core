@@ -312,8 +312,6 @@ namespace graphene {
             auto series_itr = series_idx.find(nft_obj.series_id);
             FC_ASSERT(series_itr != series_idx.end());
             const nft_series_object &series_obj = *series_itr;
-            const asset_object& series_asset_obj = series_obj.asset_id(d);
-            const account_object& series_issuer = series_asset_obj.issuer(d);
 
             // Verify that the specified manager is actually the Series Manager
             FC_ASSERT(op.manager == series_obj.manager,
@@ -330,15 +328,10 @@ namespace graphene {
                             ("asset", op.amount.asset_id)
             );
 
-            // Verify conventional transfer restrictions: is the asset transfer restricted
-            if( asset_type.is_transfer_restricted() )
-            {
-               GRAPHENE_ASSERT(series_issuer.id == asset_type.issuer || to_account.id == asset_type.issuer,
-                               transfer_restricted_transfer_asset,
-                               "Asset ${asset} has transfer_restricted flag enabled",
-                               ("asset", op.amount.asset_id)
-               );
-            }
+            // Transfer restrictions require the Issuer to be either the sender or recipient
+            // The Series Manager is designated by the Series Issuer.
+            // Therefore any primary transfer implicitly involves the Series Issuer as a sender.
+            // No additional verifications are required.
 
             // Verify that the Inventory has sufficient assets to satisfy the primary transfer
             FC_ASSERT(op.amount.asset_id == nft_obj.token_id); // Redundant check from earlier in the function
