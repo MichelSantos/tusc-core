@@ -164,6 +164,8 @@ struct proposal_operation_hardfork_visitor
                    "Unable to define fees for NFT operations prior to the NFT Milestone 1 hardfork");
          FC_ASSERT(!op.new_parameters.current_fees->exists<nft_mint_operation>(),
                    "Unable to define fees for NFT operations prior to the NFT Milestone 1 hardfork");
+         FC_ASSERT(!op.new_parameters.current_fees->exists<nft_primary_transfer_operation>(),
+                   "Unable to define fees for NFT operations prior to the NFT Milestone 1 hardfork");
       }
    }
    void operator()(const graphene::chain::htlc_create_operation &op) const {
