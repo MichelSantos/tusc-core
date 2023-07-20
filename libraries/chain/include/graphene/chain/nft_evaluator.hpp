@@ -78,5 +78,16 @@ namespace graphene {
          asset _redemption_amount;
       };
 
+      class nft_burn_evaluator : public evaluator<nft_burn_evaluator> {
+      public:
+         typedef nft_burn_operation operation_type;
+
+         void_result do_evaluate(const nft_burn_operation &o);
+
+         object_id_type do_apply(const nft_burn_operation &o);
+
+         const asset_dynamic_data_object* _token_dyn_data = nullptr;
+      };
+
    } // namespace graphene
 } // namespace graphene

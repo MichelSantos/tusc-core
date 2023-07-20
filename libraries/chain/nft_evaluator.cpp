@@ -514,5 +514,101 @@ namespace graphene {
          } FC_CAPTURE_AND_RETHROW((op))
       }
 
+      void_result nft_burn_evaluator::do_evaluate(const nft_burn_operation &op) {
+         try {
+            const graphene::chain::database& d = db();
+
+            // Verify the existence of the associated asset
+            const asset_object &t = op.amount.asset_id(d);
+
+            // Verify that the asset is a minted token object
+            const auto& token_id_idx = d.get_index_type<nft_token_index>().indices().get<by_nft_token_asset_id>();
+            auto token_itr = token_id_idx.find(op.amount.asset_id);
+            const bool& is_nft = (token_itr != token_id_idx.end());
+            FC_ASSERT(is_nft, "Burns may only be performed for NFT tokens");
+            const nft_token_object &nft_obj = *token_itr;
+
+            const auto &series_idx = d.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+            auto series_itr = series_idx.find(nft_obj.series_id);
+            FC_ASSERT(series_itr != series_idx.end());
+            const nft_series_object &series_obj = *series_itr;
+
+            // Verify that the asserted issuer is the sub-asset issuer
+            FC_ASSERT(op.issuer == t.issuer,
+                      "Incorrect issuer for asset! (${op.issuer} != ${t.issuer})",
+                      ("op.issuer", op.issuer)("t.issuer", t.issuer));
+
+            // Verify that the asserted issuer is the Series Issuer
+            const asset_object& series_asset_obj = series_obj.asset_id(d);
+            const account_object& series_issuer = series_asset_obj.issuer(d);
+            FC_ASSERT(op.issuer == series_issuer.id,
+                      "Burns may only be initiated by the Series Manager. (Series Issuer is ${series_issuer}.  Alleged issuer is ${op_issuer}.)",
+                      ("series_issuer", series_issuer.id)
+                      ("op_issuer", op.issuer)
+            );
+
+            // Verify presumptions
+            const asset_dynamic_data_object &t_addo = t.dynamic_asset_data_id(d);
+            _token_dyn_data = &t_addo;
+            FC_ASSERT(nft_obj.amount_in_inventory > 0, "A burn is impossible because the Inventory is empty");
+            FC_ASSERT(nft_obj.amount_in_inventory <= t_addo.current_supply.value); // Any difference should be present in other balances or previously burnt
+
+            // Verify that the Inventory has sufficient assets to satisfy the burn
+            FC_ASSERT(op.amount.asset_id == nft_obj.token_id); // Redundant check from earlier in the function
+            FC_ASSERT(op.amount.amount > 0); // Redundant check from the operation's validate()
+            FC_ASSERT(op.amount.amount <= nft_obj.amount_in_inventory,
+                      "The amount of the burn (${requested} subdivisions) exceeds the available balance in the Inventory (${available} subdivisions)",
+                      ("requested", op.amount.amount)
+                         ("available", nft_obj.amount_in_inventory)
+            );
+            // Verify consistency with token supply
+            FC_ASSERT(op.amount.amount <= t_addo.current_supply.value,
+                      "The amount of the burn (${requested} subdivisions) exceeds the current supply of the token (${available} subdivisions)",
+                      ("requested", op.amount.amount)
+                         ("available", t_addo.current_supply.value)
+            );
+
+            // Verify the proposed new quantity in Inventory
+            const fc::uint128_t &proposed_new_supply = fc::uint128_t(nft_obj.amount_in_inventory.value)
+                                                       - op.amount.amount.value;
+            FC_ASSERT(proposed_new_supply >= 0,
+                      "Burning should NOT result in a negative supply of the token");
+
+            // The following checks should pass easily but check in case
+            // the other checks have overlooked an issue such as numerical overflow or underflow
+            const share_type& t_whole_token = asset::scaled_precision(t.precision).value;
+            const share_type& t_max_supply = t_whole_token;
+            FC_ASSERT(proposed_new_supply <= t_max_supply,
+                      "Burning would result in more subdivisions than are possible in a single whole token");
+
+            return void_result();
+         } FC_CAPTURE_AND_RETHROW((op))
+      }
+
+      object_id_type nft_burn_evaluator::do_apply(const nft_burn_operation &op) {
+         try {
+            graphene::chain::database &d = db();
+
+            const share_type &amount_to_burn = op.amount.amount;
+
+            const auto& token_id_idx = d.get_index_type<nft_token_index>().indices().get<by_nft_token_asset_id>();
+            auto token_itr = token_id_idx.find(op.amount.asset_id);
+
+            // Modify the existing internal object
+            const nft_token_object &obj = *token_itr;
+            db().modify(obj, [&amount_to_burn](nft_token_object &data) {
+               data.amount_burned += amount_to_burn;
+               data.amount_in_inventory -= amount_to_burn;
+            });
+
+            // Modify the current supply of the token
+            db().modify(*_token_dyn_data, [&amount_to_burn](asset_dynamic_data_object &data) {
+               data.current_supply -= amount_to_burn;
+            });
+
+            return obj.id;
+         } FC_CAPTURE_AND_RETHROW((op))
+      }
+
    } // namespace chain
 } // namespace graphene
