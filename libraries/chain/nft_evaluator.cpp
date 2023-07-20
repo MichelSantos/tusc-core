@@ -144,11 +144,11 @@ namespace graphene {
             // Verify that the token is not a liquidity pool asset
             FC_ASSERT(!t.is_liquidity_pool_share_asset(), "The asset to mint may not be a liquidity pool asset");
 
-            // Verify that the token is not a liquidity pool asset
+            // Verify that the token is not a market-issued asset
             FC_ASSERT(!t.is_market_issued(), "The asset to mint may not be a market-issued asset");
 
-            // Verify that associated asset is a sub-asset (i.e. not a sub-asset)
-            // Graphene convention stipulates that parent assets have no periods (".") in the name
+            // Verify that associated asset is a sub-asset (i.e. not a parent asset)
+            // Graphene convention stipulates that sub-assets have periods (".") in the name
             const std::size_t idx_period = t.symbol.find('.');
             FC_ASSERT(idx_period != std::string::npos,
                       "The asset associated with a minting should be a sub-asset (${asset_name})",
