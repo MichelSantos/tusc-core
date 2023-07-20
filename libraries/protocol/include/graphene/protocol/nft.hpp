@@ -180,6 +180,36 @@ namespace graphene {
          account_id_type fee_payer() const { return bearer; }
 
       };
+
+      struct nft_burn_operation : public base_operation {
+         struct fee_parameters_type {
+            uint64_t fee = 10 * GRAPHENE_BLOCKCHAIN_PRECISION;
+         };
+
+         /// Paid to the network
+         asset fee;
+
+         /// This account must sign and pay the fee for this operation
+         /// This account must also be the Series Issuer.
+         account_id_type issuer;
+
+         /// Existing asset and amount that will be "burned" from the inventory
+         asset amount;
+
+         /// for future expansion
+         extensions_type extensions;
+
+         /***
+          * @brief Perform simple validation of this object
+          */
+         void validate() const;
+
+         /**
+          * @brief Who will pay the fee
+          */
+         account_id_type fee_payer() const { return issuer; }
+      };
+
    }
 }
 
@@ -209,6 +239,13 @@ FC_REFLECT( graphene::protocol::nft_return_operation,
 (fee)(bearer)(amount)(extensions)
 )
 
+FC_REFLECT( graphene::protocol::nft_burn_operation::fee_parameters_type, (fee)
+)
+
+FC_REFLECT( graphene::protocol::nft_burn_operation,
+(fee)(issuer)(amount)(extensions)
+)
+
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation )
 
@@ -220,3 +257,6 @@ GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfe
 
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_return_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_return_operation )
+
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation::fee_parameters_type )
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation )
