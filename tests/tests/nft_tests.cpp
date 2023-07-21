@@ -81,11 +81,11 @@ struct nft_database_fixture : database_fixture {
    // Create and sub-asset and mint it into an existing series
    const asset_id_type create_sub_asset_and_mint(const string sub_asset_name, const uint8_t sub_asset_precision,
                                                  account_id_type issuer_id, private_key_type issuer_priv_key,
-                                                 asset req_backing_per_subdivision, asset min_price_per_subdivision) {
+                                                 asset req_backing_per_subdivision, asset min_price_per_subdivision,
+                                                 uint16_t flags = 0) {
       // Create the sub-asset
       const uint64_t& whole_token_subdivisions = asset::scaled_precision(sub_asset_precision).value;
       const uint64_t& max_supply = whole_token_subdivisions;
-      const uint16_t flags = DEFAULT_UIA_ASSET_ISSUER_PERMISSION;
       const asset_object &sub_asset_obj = create_user_issued_asset(sub_asset_name, issuer_id(db), flags,
                                                                    max_supply, sub_asset_precision);
       const asset_id_type sub_asset_id = sub_asset_obj.id;
@@ -1245,10 +1245,12 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_b) {
       const string sub_asset_1_name = "SERIESA.SUB1";
       asset req_backing_per_subdivision = asset(500, core_id);
       asset min_price_per_subdivision = asset(750, core_id);
+      const uint16_t flags = DEFAULT_UIA_ASSET_ISSUER_PERMISSION; // Include transfer restrictions and whitelisting
       const asset_id_type sub_asset_1_id = create_sub_asset_and_mint(sub_asset_1_name, 2,
                                                                      creator_id, creator_private_key,
                                                                      req_backing_per_subdivision,
-                                                                     min_price_per_subdivision);
+                                                                     min_price_per_subdivision,
+                                                                     flags);
 
       // Primary transfer
       // Manager attempts to primary transfer 40 subdivisions (40%) of the token from the Inventory
@@ -1675,16 +1677,17 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_backed_token_invalid) {
       const uint8_t sub_asset_precision = 2;
       asset req_backing_per_subdivision = asset(500, core_id);
       asset min_price_per_subdivision = asset(750, core_id);
+      const uint16_t flags = DEFAULT_UIA_ASSET_ISSUER_PERMISSION; // Include whitelisting
       const asset_id_type sub_asset_1_id = create_sub_asset_and_mint(sub_asset_1_name, sub_asset_precision,
                                                                      creator_id, creator_private_key,
                                                                      req_backing_per_subdivision,
-                                                                     min_price_per_subdivision);
+                                                                     min_price_per_subdivision,
+                                                                     flags);
 
       // Create an asset that is NOT added to the inventory
       const string wild_sub_asset_name = "SERIESA.WILD";
       const uint64_t& whole_token_subdivisions = asset::scaled_precision(sub_asset_precision).value;
       const uint64_t& max_supply = whole_token_subdivisions;
-      const uint16_t flags = DEFAULT_UIA_ASSET_ISSUER_PERMISSION;
       const asset_object& wild_sub_asset_obj = create_user_issued_asset(wild_sub_asset_name,
                                                                         creator_id(db),
                                                                         flags,
