@@ -2001,7 +2001,7 @@ BOOST_AUTO_TEST_CASE(nft_return_of_complete_returns_a) {
       BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
 
       // Charlie attempts to return 41 subdivisions when he only own 40 subdivisions
-      BOOST_TEST_MESSAGE("Return #1: Invalid return of 100.1% of Token #1");
+      BOOST_TEST_MESSAGE("Return #1: Invalid return of 41% of Token #1");
       const share_type t1_return1 = 41;
       return_op = nft_return_operation();
       return_op.amount = asset(t1_return1, sub_asset_1_id);
@@ -2795,6 +2795,769 @@ BOOST_AUTO_TEST_CASE(nft_returns_before_hardfork) {
    } FC_LOG_AND_RETHROW()
 }
 
+/**
+ * Test the burning of tokens that are not NFTs
+ */
+BOOST_AUTO_TEST_CASE(nft_burn_non_nft) {
+   try {
+      // Initialize
+      advance_past_m2_hardfork();
+
+      ACTORS((creator)(mgr)(beneficiary)(treasury)(doug));
+      int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, creator_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, mgr_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, treasury_id, graphene::chain::asset(init_balance));
+      const asset_id_type core_id = asset_id_type();
+
+      // Attempt to burn the core Token
+      // which should fail because it is not an NFT
+      graphene::chain::nft_burn_operation burn_op;
+      burn_op.issuer = creator_id;
+      burn_op.amount = asset(1, core_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, creator_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "The token to burn may not be the core token");
+
+      // Create a Series where creator is the Issuer and mgr is the Series Manager
+      const string series_name = "SERIESA";
+      uint16_t royalty_fee_centipercent = 0;
+      create_asset_and_series(series_name, creator_id, creator_private_key,
+                              beneficiary_id, mgr_id, royalty_fee_centipercent);
+
+      // Create an asset and mint it into the Series
+      const string sub_asset_name = "SERIESA.WILD";
+      // Create the sub-asset
+      const uint8_t sub_asset_precision = 2;
+      const uint64_t& whole_token_subdivisions = asset::scaled_precision(sub_asset_precision).value;
+      const uint64_t& max_supply = whole_token_subdivisions;
+      const uint16_t flags = DEFAULT_UIA_ASSET_ISSUER_PERMISSION;
+      const asset_object &sub_asset_obj = create_user_issued_asset(sub_asset_name, creator_id(db), flags,
+                                                                   max_supply, sub_asset_precision);
+      const asset_id_type sub_asset_id = sub_asset_obj.id;
+
+      // Attempt to burn the sub-asset
+      // which should fail because it is not an NFT
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = creator_id;
+      burn_op.amount = asset(1, sub_asset_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, creator_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Burns may only be performed for NFT tokens");
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test the burning of NFT tokens that have been minted yet never left the inventory
+ * - Token #1 is un-backed
+ * - Token #2 is backed
+ */
+BOOST_AUTO_TEST_CASE(nft_burn_newly_minted) {
+   try {
+      INVOKE(nft_mint_a);
+      advance_past_m2_hardfork();
+
+      // Initialize
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type core_id = asset_id_type();
+
+      ///
+      /// Return Token #1 of which consists of 100 subdivision
+      /// all of which are in the Inventory
+      ///
+      // Verify the implementation object
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      auto token_itr = token_name_idx.find(sub_asset_1_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &token_1_obj = *token_itr;
+      const asset_id_type token_1_id = token_1_obj.token_id;
+      BOOST_REQUIRE(token_1_obj.min_price_per_subdivision == asset(0, core_id));
+      BOOST_REQUIRE(token_1_obj.req_backing_per_subdivision == asset(0, core_id));
+      BOOST_REQUIRE(token_1_obj.current_backing == asset(0, core_id));
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_in_inventory.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_1_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_1_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn -30% of Token #1
+      // which should fail because burn amounts should be positive
+      graphene::chain::nft_burn_operation burn_op;
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(-30, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a burn should be positive");
+
+      // Attempt to burn 0% of Token #1
+      // which should fail because burn amounts should be positive
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(0, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a burn should be positive");
+
+      // Attempt to burn 100.1% of Token #1
+      // which should fail because it exceeds the amount available
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(101, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the available balance in the Inventory");
+
+      // Burn 25% of Token #1
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(25, token_1_id); // 25% of 100 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_in_inventory.value, 100 - 25);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_burned.value, 25);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_1_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_1_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn more than remains of Token #1
+      // which should fail
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(76, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the available balance in the Inventory");
+
+      // Burn the remainder of Token #1
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(75, token_1_id); // 75% of 100 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_in_inventory.value, 100 - 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_burned.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_1_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_1_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn more than remains of Token #1
+      // which should fail
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(1, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "A burn is impossible because the Inventory is empty");
+
+
+      ///
+      /// Return Token #2 of which consists of 1000 subdivision
+      /// all of which are in the Inventory
+      ///
+      // Verify the implementation object
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &token_2_obj = *token_itr;
+      const asset_id_type token_2_id = token_2_obj.token_id;
+      BOOST_REQUIRE(token_2_obj.min_price_per_subdivision == asset(750, core_id));
+      BOOST_REQUIRE(token_2_obj.req_backing_per_subdivision == asset(500, core_id));
+      BOOST_REQUIRE(token_2_obj.current_backing == asset(0, core_id));
+      // Verify balances
+      BOOST_TEST_MESSAGE("Verifying the presence of tokens in the Series Inventory");
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_in_inventory.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_2_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn -30% of Token #2
+      // which should fail because burn amounts should be positive
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(-300, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a burn should be positive");
+
+      // Attempt to burn 0% of Token #2
+      // which should fail because burn amounts should be positive
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(0, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a burn should be positive");
+
+      // Attempt to burn 100.1% of Token #2
+      // which should fail because it exceeds the amount available
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(1001, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the available balance in the Inventory");
+
+      // Burn 25% of Token #1
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(250, token_2_id); // 25% of 1000 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_in_inventory.value, 1000 - 250);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_burned.value, 250);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_2_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn more than remains of Token #2
+      // which should fail
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(751, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the available balance in the Inventory");
+
+      // Burn the remainder of Token #2
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(750, token_2_id); // 75% of 100 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_in_inventory.value, 1000 - 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_burned.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_2_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn more than remains of Token #2
+      // which should fail
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(1, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "A burn is impossible because the Inventory is empty");
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test the burning of NFT tokens that have been out in circulation and returned to the Inventory
+ * - Token #1 is un-backed
+ * - Token #2 is backed
+ *
+ * Intersperse attempts to mint again after some burns.
+ * They should fail regardless of the burns because the maximum amount of the NFT
+ * has previously been minted.
+ */
+BOOST_AUTO_TEST_CASE(nft_burn_of_returned_tokens) {
+   try {
+      INVOKE(nft_return_of_partial_returns_a);
+      advance_past_m2_hardfork();
+
+      // Initialize
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type core_id = asset_id_type();
+
+      ///
+      /// Return Token #1 of which consists of 100 subdivision
+      /// all of which are in the Inventory, and are not backable
+      ///
+      // Verify the implementation object
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      auto token_itr = token_name_idx.find(sub_asset_1_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &token_1_obj = *token_itr;
+      const asset_id_type token_1_id = token_1_obj.token_id;
+
+      // Verify the Inventory's balance after the return
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_in_inventory.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE(token_1_obj.current_backing == asset(0, core_id));
+      // Verify everyone's balances after the return
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, token_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, token_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, token_1_id), 0);
+
+      // Attempt to burn -30% of Token #1
+      // which should fail because burn amounts should be positive
+      graphene::chain::nft_burn_operation burn_op;
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(-30, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a burn should be positive");
+
+      // Attempt to burn 0% of Token #1
+      // which should fail because burn amounts should be positive
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(0, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a burn should be positive");
+
+      // Attempt to burn 100.1% of Token #1
+      // which should fail because it exceeds the amount available
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(101, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the available balance in the Inventory");
+
+      // Bob attempts to Burn 25% of Token #1
+      // which should fail because Alice is the issuer
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(25, token_1_id); // 25% of 100 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, bob_private_key); // Should be signed by the Series Issuer but is being signed by another account
+      GRAPHENE_REQUIRE_THROW(PUSH_TX(db, trx), fc::exception);
+
+      // Burn 25% of Token #1
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(25, token_1_id); // 25% of 100 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_in_inventory.value, 100 - 25);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_burned.value, 25);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_1_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_1_obj.current_backing.asset_id == core_id);
+
+      // Attempt to mint
+      // Minting should fail because the maximum amount of the NFT has already been minted
+      BOOST_TEST_MESSAGE("Attempting to mint more of Token #1");
+      graphene::chain::nft_mint_operation mint_op;
+      mint_op.issuer = alice_id;
+      mint_op.asset_id = token_1_id;
+      mint_op.subdivisions = 1;
+      mint_op.min_price_per_subdivision = asset(0, core_id); // No minimum price required
+      mint_op.req_backing_per_subdivision = asset(0, core_id); // No backing required
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, alice_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "would violate the remaining capacity to exist");
+
+      // Attempt to burn more than remains of Token #1
+      // which should fail
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(76, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the available balance in the Inventory");
+
+      // Burn the remainder of Token #1
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(75, token_1_id); // 75% of 100 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_in_inventory.value, 100 - 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_burned.value, 100);
+      BOOST_REQUIRE_EQUAL(token_1_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_1_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_1_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn more than remains of Token #1
+      // which should fail
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(1, token_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "A burn is impossible because the Inventory is empty");
+
+      // Attempt to mint
+      // Minting should fail because the maximum amount of the NFT has already been minted
+      BOOST_TEST_MESSAGE("Attempting to mint more of Token #1");
+      mint_op = graphene::chain::nft_mint_operation();
+      mint_op.issuer = alice_id;
+      mint_op.asset_id = token_1_id;
+      mint_op.subdivisions = 1;
+      mint_op.min_price_per_subdivision = asset(0, core_id); // No minimum price required
+      mint_op.req_backing_per_subdivision = asset(0, core_id); // No backing required
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, alice_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "would violate the remaining capacity to exist");
+
+
+      ///
+      /// Return Token #2 of which consists of 1000 subdivision
+      /// all of which are in the Inventory
+      ///
+      // Verify the implementation object
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &token_2_obj = *token_itr;
+      const asset_id_type token_2_id = token_2_obj.token_id;
+      BOOST_REQUIRE(token_2_obj.min_price_per_subdivision == asset(750, core_id));
+      BOOST_REQUIRE(token_2_obj.req_backing_per_subdivision == asset(500, core_id));
+      BOOST_REQUIRE(token_2_obj.current_backing == asset(0, core_id));
+      // Verify balances
+      BOOST_TEST_MESSAGE("Verifying the presence of tokens in the Series Inventory");
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_in_inventory.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_2_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn -30% of Token #2
+      // which should fail because burn amounts should be positive
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(-300, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a burn should be positive");
+
+      // Attempt to burn 0% of Token #2
+      // which should fail because burn amounts should be positive
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(0, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Amount of a burn should be positive");
+
+      // Attempt to burn 100.1% of Token #2
+      // which should fail because it exceeds the amount available
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(1001, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the available balance in the Inventory");
+
+      // Burn 25% of Token #1
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(250, token_2_id); // 25% of 1000 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_in_inventory.value, 1000 - 250);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_burned.value, 250);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_2_obj.current_backing.asset_id == core_id);
+
+      // Attempt to mint
+      // Minting should fail because the maximum amount of the NFT has already been minted
+      BOOST_TEST_MESSAGE("Attempting to mint more of Token #2");
+      mint_op = graphene::chain::nft_mint_operation();
+      mint_op.issuer = alice_id;
+      mint_op.asset_id = token_2_id;
+      mint_op.subdivisions = 1;
+      mint_op.min_price_per_subdivision = asset(750, core_id); // Matches existing definition
+      mint_op.req_backing_per_subdivision = asset(500, core_id); // Matches existing definition
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, alice_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "would violate the remaining capacity to exist");
+
+      // Attempt to burn more than remains of Token #2
+      // which should fail
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(751, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "exceeds the available balance in the Inventory");
+
+      // Burn the remainder of Token #2
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(750, token_2_id); // 75% of 100 subdivisions
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_minted.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_in_inventory.value, 1000 - 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_burned.value, 1000);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_2_obj.current_backing.asset_id == core_id);
+
+      // Attempt to burn more than remains of Token #2
+      // which should fail
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(1, token_2_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "A burn is impossible because the Inventory is empty");
+
+      // Attempt to mint
+      // Minting should fail because the maximum amount of the NFT has already been minted
+      BOOST_TEST_MESSAGE("Attempting to mint more of Token #2");
+      mint_op = graphene::chain::nft_mint_operation();
+      mint_op.issuer = alice_id;
+      mint_op.asset_id = token_2_id;
+      mint_op.subdivisions = 1;
+      mint_op.min_price_per_subdivision = asset(750, core_id); // Matches existing definition
+      mint_op.req_backing_per_subdivision = asset(500, core_id); // Matches existing definition
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, alice_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "would violate the remaining capacity to exist");
+
+   } FC_LOG_AND_RETHROW()
+}
+
+
+/**
+ * Test the multiple primary transfers and burns of a backable NFT token consisting of 100 subdivisions
+ * while the token is present both in the Inventory, out in circulation, and burnt.
+ */
+BOOST_AUTO_TEST_CASE(nft_burn_of_partially_returned_tokens) {
+   try {
+      advance_past_m2_hardfork();
+
+      ACTORS((creator)(mgr)(beneficiary)(treasury)(doug)(emma));
+      int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, creator_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, mgr_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, treasury_id, graphene::chain::asset(init_balance));
+      const asset_id_type core_id = asset_id_type();
+
+      // Create a Series where creator is the Issuer and mgr is the Series Manager
+      const string series_name = "SERIESA";
+      uint16_t royalty_fee_centipercent = 0;
+      create_asset_and_series(series_name, creator_id, creator_private_key,
+                              beneficiary_id, mgr_id, royalty_fee_centipercent);
+
+      // Create an asset and mint it into the Series
+      // A precision of 2 will result in 10^2 subdivisions = 100 subdivisions
+      const string sub_asset_1_name = "SERIESA.SUB1";
+      asset req_backing_per_subdivision = asset(500, core_id);
+      asset min_price_per_subdivision = asset(750, core_id);
+      const asset_id_type sub_asset_1_id = create_sub_asset_and_mint(sub_asset_1_name, 2,
+                                                                     creator_id, creator_private_key,
+                                                                     req_backing_per_subdivision,
+                                                                     min_price_per_subdivision);
+
+      ///
+      /// Primary transfer
+      /// Manager attempts to primary transfer 70 subdivisions (70%) of the token from the Inventory
+      ///
+      graphene::chain::nft_primary_transfer_operation ptx_op;
+
+      const share_type treasury_balance_0 = get_balance(treasury_id, core_id);
+
+      BOOST_TEST_MESSAGE("Primary transfer of 70% of Token #1");
+      ptx_op = nft_primary_transfer_operation();
+      ptx_op.amount = asset(70, sub_asset_1_id);
+      ptx_op.to = doug_id;
+      ptx_op.manager = mgr_id;
+      ptx_op.provisioner = treasury_id;
+      trx.clear();
+      trx.operations.push_back(ptx_op);
+      sign(trx, mgr_private_key);
+      sign(trx, treasury_private_key);
+      PUSH_TX(db, trx);
+
+      // Verify Inventory
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      auto token_itr = token_name_idx.find(sub_asset_1_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object& t1_1 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 30); // = 100 - 70
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      share_type expected_required_backing = 35000; // (70 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_REQUIRE(t1_1.current_backing == asset(expected_required_backing, core_id));
+
+      // Verify payment by funding source
+      // Interpretation #1 of the concept design requires enough payment
+      // to cover the backing behind the amount of token extracted from the Inventory
+      const share_type expected_treasury_balance_1 = treasury_balance_0 - expected_required_backing;
+      const share_type treasury_balance_1 = get_balance(treasury_id, core_id);
+      BOOST_CHECK(expected_treasury_balance_1 == treasury_balance_1);
+
+      // Verify account balances after the primary transfer
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(beneficiary_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(mgr_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 70);
+
+      ///
+      /// Perform a partial return of 15 subdivisions
+      ///
+      const share_type t1_return1 = 15;
+      nft_return_operation return_op;
+      return_op.amount = asset(t1_return1, sub_asset_1_id);
+      return_op.bearer = doug_id;
+      trx.clear();
+      trx.operations.push_back(return_op);
+      sign(trx, doug_private_key); // Must be signed by the bearer
+      PUSH_TX(db, trx);
+
+      // Verify Inventory
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 45); // = 100 - 70 + 15
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      expected_required_backing = 27500; // (55 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_REQUIRE(t1_1.current_backing == asset(expected_required_backing, core_id));
+
+      // Verify account balances after the primary transfer
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(beneficiary_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(mgr_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 55); // 70 - 15
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, core_id), 7500); // (15 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_CHECK(get_balance(treasury_id, core_id) == treasury_balance_1); // Treasury's balance should be unaffected
+
+
+      ///
+      /// Burn some of the subdivisions that are present in the Inventory.
+      /// The only quantities that should be affected are after the burning are
+      /// the amount burned, and the amount in Inventory.
+      ///
+      graphene::chain::nft_burn_operation burn_op;
+      burn_op.issuer = creator_id;
+      burn_op.amount = asset(25, sub_asset_1_id);
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, creator_private_key); // Should be signed by the Series Issuer
+      PUSH_TX(db, trx);
+
+      // Verify Inventory
+      BOOST_REQUIRE_EQUAL(t1_1.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_1.amount_in_inventory.value, 20); // = 100 - 70 + 15 - 25
+      BOOST_REQUIRE_EQUAL(t1_1.amount_burned.value, 25); // = 0 + 25
+      BOOST_REQUIRE_EQUAL(t1_1.amount_on_primary_sale.value, 0);
+      expected_required_backing = 27500; // (70 - 15 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_REQUIRE(t1_1.current_backing == asset(expected_required_backing, core_id));
+
+      // Verify account balances after the burn
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(beneficiary_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(mgr_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 55); // 70 - 15
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, core_id), 7500); // (15 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_CHECK(get_balance(treasury_id, core_id) == treasury_balance_1); // Treasury's balance should be unaffected
+
+      ///
+      //// Primary transfer #2
+      //// Manager attempts to primary transfer 5 subdivisions (5%) of the token from the Inventory
+      ///
+      BOOST_TEST_MESSAGE("Primary transfer of 5% of Token #1");
+      ptx_op = nft_primary_transfer_operation();
+      ptx_op.amount = asset(5, sub_asset_1_id);
+      ptx_op.to = emma_id;
+      ptx_op.manager = mgr_id;
+      ptx_op.provisioner = treasury_id;
+      trx.clear();
+      trx.operations.push_back(ptx_op);
+      sign(trx, mgr_private_key);
+      sign(trx, treasury_private_key);
+      PUSH_TX(db, trx);
+
+      // Verify Inventory
+      const nft_token_object& t1_2 = *token_itr;
+      BOOST_REQUIRE_EQUAL(t1_2.amount_minted.value, 100);
+      BOOST_REQUIRE_EQUAL(t1_2.amount_in_inventory.value, 15); // = 100 - 70 + 15 - 25 - 5
+      BOOST_REQUIRE_EQUAL(t1_2.amount_burned.value, 25); // = 0 + 25
+      BOOST_REQUIRE_EQUAL(t1_2.amount_on_primary_sale.value, 0);
+      expected_required_backing = 30000; // (70 - 15 + 5 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_REQUIRE(t1_2.current_backing == asset(expected_required_backing, core_id));
+
+      // Verify payment by funding source
+      // Interpretation #1 of the concept design requires enough payment
+      // to cover the backing behind the amount of token extracted from the Inventory
+      // Treasury funded (70 + 5 NFT subdivision) * (500 core / NFT subdivision)
+      const share_type expected_treasury_balance_2 = treasury_balance_0 - (37500);
+      const share_type treasury_balance_2 = get_balance(treasury_id, core_id);
+      BOOST_CHECK(expected_treasury_balance_2 == treasury_balance_2);
+
+      // Verify account balances after the primary transfer
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(beneficiary_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(mgr_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 55); // = 70 - 15
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, core_id), 7500); // (15 NFT subdivision) * (500 core / NFT subdivision)
+      BOOST_CHECK(get_balance(treasury_id, core_id) == treasury_balance_2); // Treasury's balance should be unaffected
+      BOOST_REQUIRE_EQUAL(get_balance(emma_id, sub_asset_1_id), 5); // 5
+      BOOST_REQUIRE_EQUAL(get_balance(emma_id, core_id), 0);
+
+   } FC_LOG_AND_RETHROW()
+}
+
 
 /**
  * Tests of Database API functionality
@@ -3308,6 +4071,7 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_a ) {
       /// Inspect Charlie's account history
       ///
       vector <operation_history_object> histories;
+      operation op;
       histories = hist_api.get_account_history("charlie");
       int count = histories.size();
       // Charlie's history in this scenario should include:
@@ -3315,9 +4079,6 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_a ) {
       // 4 NFT Primary Transfer to Charlie
       // 2 NFT Returns by Charlie
       BOOST_CHECK(count == 7);
-
-      // The most recent should be the return of Token #
-      operation op;
 
       // Account histories are sorted in decreasing time order
       // The first operation should correspond to Charlie's returning 1000 subdivision of Token #2
@@ -3327,42 +4088,42 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_a ) {
       BOOST_CHECK(return_op.bearer == charlie_id);
       BOOST_CHECK(return_op.amount == asset(1000, sub_asset_2_id));
 
-      // The second operation should correspond to Charlie's returning 40 subdivision of Token #1
+      // The next operation should correspond to Charlie's returning 40 subdivision of Token #1
       op = histories[1].op;
       BOOST_REQUIRE(op.is_type<nft_return_operation>());
       return_op = op.get<nft_return_operation>();
       BOOST_CHECK(return_op.bearer == charlie_id);
       BOOST_CHECK(return_op.amount == asset(40, sub_asset_1_id));
 
-      // The third operation should correspond to Charlie's receipt of 250 subdivision of Token #2
+      // The next operation should correspond to Charlie's receipt of 250 subdivision of Token #2
       op = histories[2].op;
       BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
       nft_primary_transfer_operation ptx_op = op.get<nft_primary_transfer_operation>();
       BOOST_CHECK(ptx_op.to == charlie_id);
       BOOST_CHECK(ptx_op.amount == asset(250, sub_asset_2_id));
 
-      // The third operation should correspond to Charlie's receipt of 350 subdivision of Token #2
+      // The next operation should correspond to Charlie's receipt of 350 subdivision of Token #2
       op = histories[3].op;
       BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
       ptx_op = op.get<nft_primary_transfer_operation>();
       BOOST_CHECK(ptx_op.to == charlie_id);
       BOOST_CHECK(ptx_op.amount == asset(350, sub_asset_2_id));
 
-      // The third operation should correspond to Charlie's receipt of 400 subdivision of Token #2
+      // The next operation should correspond to Charlie's receipt of 400 subdivision of Token #2
       op = histories[4].op;
       BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
       ptx_op = op.get<nft_primary_transfer_operation>();
       BOOST_CHECK(ptx_op.to == charlie_id);
       BOOST_CHECK(ptx_op.amount == asset(400, sub_asset_2_id));
 
-      // The third operation should correspond to Charlie's receipt of 40 subdivision of Token #1
+      // The next operation should correspond to Charlie's receipt of 40 subdivision of Token #1
       op = histories[5].op;
       BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
       ptx_op = op.get<nft_primary_transfer_operation>();
       BOOST_CHECK(ptx_op.to == charlie_id);
       BOOST_CHECK(ptx_op.amount == asset(40, sub_asset_1_id));
 
-      // The third operation should correspond to Charlie's account creation
+      // The next operation should correspond to Charlie's account creation
       op = histories[6].op;
       BOOST_REQUIRE(op.is_type<account_create_operation>());
       account_create_operation ac_op = op.get<account_create_operation>();
