@@ -518,6 +518,10 @@ namespace graphene {
          try {
             const graphene::chain::database& d = db();
 
+            // Reject any activity before the hardfork time
+            auto now = d.head_block_time();
+            FC_ASSERT(HARDFORK_NFT_M2_PASSED(now), "NFT Burning is not yet enabled");
+
             // Verify the existence of the associated asset
             const asset_object &t = op.amount.asset_id(d);
 
