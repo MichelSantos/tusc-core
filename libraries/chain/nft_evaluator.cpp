@@ -544,16 +544,11 @@ namespace graphene {
             FC_ASSERT(series_itr != series_idx.end());
             const nft_series_object &series_obj = *series_itr;
 
-            // Verify that the asserted issuer is the sub-asset issuer
-            FC_ASSERT(op.issuer == t.issuer,
-                      "Incorrect issuer for asset! (${op.issuer} != ${t.issuer})",
-                      ("op.issuer", op.issuer)("t.issuer", t.issuer));
-
             // Verify that the asserted issuer is the Series Issuer
             const asset_object& series_asset_obj = series_obj.asset_id(d);
             const account_object& series_issuer = series_asset_obj.issuer(d);
             FC_ASSERT(op.issuer == series_issuer.id,
-                      "Burns may only be initiated by the Series Manager. (Series Issuer is ${series_issuer}.  Alleged issuer is ${op_issuer}.)",
+                      "Burns may only be initiated by the Series Issuer. (Series Issuer is ${series_issuer}.  Alleged issuer is ${op_issuer}.)",
                       ("series_issuer", series_issuer.id)
                       ("op_issuer", op.issuer)
             );
