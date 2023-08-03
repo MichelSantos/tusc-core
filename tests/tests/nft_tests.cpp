@@ -485,6 +485,246 @@ BOOST_AUTO_TEST_CASE(nft_mint_a) {
 }
 
 /**
+ * Test minting and burning attempts after a change to an NFT's/sub-asset's issuer.
+ * Note: The issuer of an NFT Series/parent asset is distinct from
+ *       the issuer of of NFT Token/sub-asset.
+ */
+BOOST_AUTO_TEST_CASE(nft_mint_and_burn_with_different_b) {
+   try {
+      INVOKE(nft_series_creation_a);
+
+      // Initialize
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      const string series_name = "SERIESA";
+      const asset_id_type core_id = asset_id_type();
+
+      // Create a random other account
+      ACTOR(rando);
+      const int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, rando_id, graphene::chain::asset(init_balance));
+      graphene::chain::nft_mint_operation mint_op;
+
+      ///
+      /// Attempt to Mint token #1
+      ///
+      BOOST_TEST_MESSAGE("Testing Minting Sub-Assets with an Issuer Different than the Series");
+      BOOST_TEST_MESSAGE("  Minting Token #2 into Series");
+      // Create the sub-asset
+      const string sub_asset_1_name = series_name + ".SUB1";
+      // First attempt should fail because the Series Issuer is not designated as the sub-asset Issuer
+      REQUIRE_EXCEPTION_WITH_TEXT(create_user_issued_asset(sub_asset_1_name, rando_id(db), 0, 1000000, 2),
+                                  "may only be created by issuer of SERIESA");
+      const asset_object &sub_asset_1_obj = create_user_issued_asset(sub_asset_1_name, alice_id(db), 0, 1000000, 2);
+      const asset_id_type sub_asset_1_id = sub_asset_1_obj.id;
+      const asset_dynamic_data_object sub_asset_dd = sub_asset_1_obj.dynamic_data(db);
+      BOOST_CHECK_EQUAL(sub_asset_1_obj.precision, 2);
+      BOOST_CHECK_EQUAL(sub_asset_dd.current_max_supply.value, 1000000);
+      BOOST_CHECK_EQUAL(sub_asset_1_obj.options.initial_max_supply.value, 1000000);
+
+      // Before any minting of the sub-asset, change its issuer
+      asset_update_issuer_operation update_op;
+      update_op.asset_to_update = sub_asset_1_id;
+      update_op.issuer = alice_id;
+      update_op.new_issuer = rando_id;
+      trx.clear();
+      trx.operations.push_back(update_op);
+      sign(trx, alice_private_key);
+      PUSH_TX(db, trx);
+
+      // Verify new issuer
+      BOOST_REQUIRE(get_asset(sub_asset_1_name).issuer == rando_id);
+
+      // Rando attempts to mint the sub-asset into the series
+      mint_op = graphene::chain::nft_mint_operation();
+      mint_op.issuer = rando_id;
+      mint_op.asset_id = sub_asset_1_id;
+      mint_op.subdivisions = 35; // An entire single token consists of 10^precision = 10^2 = 100
+      mint_op.min_price_per_subdivision = asset(0, core_id); // No minimum price required
+      mint_op.req_backing_per_subdivision = asset(0, core_id); // No backing required
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, rando_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Minting may only be initiated by the Series Issuer");
+
+      // Alice attempts to mint the sub-asset into the series
+      mint_op.issuer = alice_id;
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, alice_private_key);
+      PUSH_TX(db, trx); // Should succeed
+
+      // Verify the implementation object
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      auto token_itr = token_name_idx.find(sub_asset_1_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &token_obj = *token_itr;
+      BOOST_REQUIRE(token_obj.min_price_per_subdivision == asset(0, core_id));
+      BOOST_REQUIRE(token_obj.req_backing_per_subdivision == asset(0, core_id));
+      BOOST_REQUIRE(token_obj.current_backing == asset(0, core_id));
+      // Verify balances
+      BOOST_TEST_MESSAGE("Verifying the presence of tokens in the Series Inventory");
+      BOOST_REQUIRE_EQUAL(token_obj.amount_minted.value, 35);
+      BOOST_REQUIRE_EQUAL(token_obj.amount_in_inventory.value, 35);
+      BOOST_REQUIRE_EQUAL(token_obj.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(token_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_obj.current_backing.asset_id == core_id);
+
+      ///
+      /// Mint token #2
+      ///
+      BOOST_TEST_MESSAGE("  Minting Token #2 into Series");
+      // Create the sub-asset
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_object &sub_asset_2_obj = create_user_issued_asset(sub_asset_2_name, alice_id(db), 0, 1000000, 3);
+      const asset_id_type sub_asset_2_id = sub_asset_2_obj.id;
+
+      // Before any minting of the sub-asset, change its issuer
+      update_op = asset_update_issuer_operation();
+      update_op.asset_to_update = sub_asset_2_id;
+      update_op.issuer = alice_id;
+      update_op.new_issuer = rando_id;
+      trx.clear();
+      trx.operations.push_back(update_op);
+      sign(trx, alice_private_key);
+      PUSH_TX(db, trx);
+
+      // Verify new issuer
+      BOOST_REQUIRE(get_asset(sub_asset_2_name).issuer == rando_id);
+
+      // Rando attempts to create the series for the sub-asset
+      mint_op = graphene::chain::nft_mint_operation();
+      mint_op.issuer = rando_id;
+      mint_op.asset_id = sub_asset_2_id;
+      mint_op.subdivisions = 350; // An entire single token = 10^precision = 10^3 = 1000 subdivisions
+      mint_op.min_price_per_subdivision = asset(750, core_id);
+      mint_op.req_backing_per_subdivision = asset(500, core_id);
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, rando_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Minting may only be initiated by the Series Issuer");
+
+      // Confirm valid burning of a Series NFT/sub-asset
+      // Alice attempts to create the series for the sub-asset
+      mint_op.issuer = alice_id;
+      trx.clear();
+      trx.operations.push_back(mint_op);
+      sign(trx, alice_private_key);
+      PUSH_TX(db, trx); // Should succeed
+
+      // Verify the implementation object
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &token_2_obj = *token_itr;
+      BOOST_REQUIRE(token_2_obj.min_price_per_subdivision == asset(750, core_id));
+      BOOST_REQUIRE(token_2_obj.req_backing_per_subdivision == asset(500, core_id));
+      BOOST_REQUIRE(token_2_obj.current_backing == asset(0, core_id));
+      // Verify balances
+      BOOST_TEST_MESSAGE("Verifying the presence of tokens in the Series Inventory");
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_minted.value, 350);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_in_inventory.value, 350);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_burned.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(token_2_obj.current_backing.amount.value, 0);
+      BOOST_REQUIRE(token_2_obj.current_backing.asset_id == core_id);
+
+      ///
+      /// Burn Token #2
+      ///
+      BOOST_TEST_MESSAGE("  Burning Token #2 from Series");
+      advance_past_m2_hardfork();
+      // Use an updated Token #2 reference after block production
+      token_itr = token_name_idx.find(sub_asset_2_name);
+      BOOST_REQUIRE(token_itr != token_name_idx.end());
+      const nft_token_object &t2_obj_2 = *token_itr;
+
+      // Rando attempts to Burn 10% of Token #1
+      // which should fail because Alice is the Series issuer
+      graphene::chain::nft_burn_operation burn_op;
+      burn_op.issuer = rando_id;
+      burn_op.amount = asset(100, sub_asset_2_id); // 100 of the 350 subdivisions present in the Inventory
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, rando_private_key); // Should be signed by the Series Issuer but is being signed by another account
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Burns may only be initiated by the Series Issuer");
+
+      // Confirm valid burning of a Series NFT/sub-asset
+      // Alice attempts to burn the sub-asset
+      burn_op.issuer = alice_id;
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key);
+      PUSH_TX(db, trx); // Should succeed
+
+      // Verify the implementation object
+      BOOST_REQUIRE(t2_obj_2.min_price_per_subdivision == asset(750, core_id));
+      BOOST_REQUIRE(t2_obj_2.req_backing_per_subdivision == asset(500, core_id));
+      BOOST_REQUIRE(t2_obj_2.current_backing == asset(0, core_id));
+      // Verify balances
+      BOOST_TEST_MESSAGE("Verifying the presence of tokens in the Series Inventory");
+      BOOST_REQUIRE_EQUAL(t2_obj_2.amount_minted.value, 350);
+      BOOST_REQUIRE_EQUAL(t2_obj_2.amount_in_inventory.value, 250);
+      BOOST_REQUIRE_EQUAL(t2_obj_2.amount_burned.value, 100);
+      BOOST_REQUIRE_EQUAL(t2_obj_2.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_obj_2.current_backing.amount.value, 0);
+      BOOST_REQUIRE(t2_obj_2.current_backing.asset_id == core_id);
+
+
+      ///
+      /// Transfer Series ownership and attempt burning again
+      /// Alice transfers the Series to Bob
+      ///
+      BOOST_TEST_MESSAGE("  Transferring Series");
+      const asset_id_type series_asset_id = get_asset(series_name).id;
+
+      update_op = asset_update_issuer_operation();
+      update_op.asset_to_update = series_asset_id;
+      update_op.issuer = alice_id;
+      update_op.new_issuer = bob_id;
+      trx.clear();
+      trx.operations.push_back(update_op);
+      sign(trx, alice_private_key);
+      PUSH_TX(db, trx);
+
+      // Verify new issuer
+      BOOST_REQUIRE(get_asset(series_name).issuer == bob_id);
+
+      // Alice attempts to Burn 5% of Token #1
+      // which should fail because Bob is the Series issuer
+      BOOST_TEST_MESSAGE("  Burning Token #2 from Series");
+      burn_op = graphene::chain::nft_burn_operation();
+      burn_op.issuer = alice_id;
+      burn_op.amount = asset(50, sub_asset_2_id); // 50 of the 250 subdivisions present in the Inventory
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, alice_private_key); // Should be signed by the Series Issuer but is being signed by another account
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "Burns may only be initiated by the Series Issuer");
+
+      // Confirm valid burning of a Series NFT/sub-asset
+      // Bob attempts to burn the sub-asset
+      burn_op.issuer = bob_id;
+      trx.clear();
+      trx.operations.push_back(burn_op);
+      sign(trx, bob_private_key);
+      PUSH_TX(db, trx); // Should succeed
+
+      // Verify the implementation object
+      BOOST_REQUIRE(t2_obj_2.min_price_per_subdivision == asset(750, core_id));
+      BOOST_REQUIRE(t2_obj_2.req_backing_per_subdivision == asset(500, core_id));
+      BOOST_REQUIRE(t2_obj_2.current_backing == asset(0, core_id));
+      // Verify balances
+      BOOST_REQUIRE_EQUAL(t2_obj_2.amount_minted.value, 350);
+      BOOST_REQUIRE_EQUAL(t2_obj_2.amount_in_inventory.value, 200);
+      BOOST_REQUIRE_EQUAL(t2_obj_2.amount_burned.value, 150);
+      BOOST_REQUIRE_EQUAL(t2_obj_2.amount_on_primary_sale.value, 0);
+      BOOST_REQUIRE_EQUAL(t2_obj_2.current_backing.amount.value, 0);
+      BOOST_REQUIRE(t2_obj_2.current_backing.asset_id == core_id);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
  * Test rejection of minting of an NFT token with invalid properties
  */
 BOOST_AUTO_TEST_CASE( nft_minting_invalid_a ) {
