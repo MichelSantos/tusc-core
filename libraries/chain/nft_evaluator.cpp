@@ -133,11 +133,6 @@ namespace graphene {
             const asset_object &t = op.asset_id(d);
             token_to_associate = &t;
 
-            // Verify that the issuer of the operation is also the issuer of the asset
-            FC_ASSERT(op.issuer == t.issuer,
-                      "Incorrect issuer for asset! (${op.issuer} != ${t.issuer})",
-                      ("op.issuer", op.issuer)("t.issuer", t.issuer));
-
             // Verify that the token's supply is permitted to increase
             FC_ASSERT(t.can_create_new_supply(), "The asset to mint is prohibited from an increase in supply");
 
@@ -165,9 +160,14 @@ namespace graphene {
                       "The parent asset could not be found for the associated asset (${asset_name})",
                       ("asset_name", t.symbol)
             );
-            const asset_id_type &s_id = itr_parent->id;
-            const asset_object &s = s_id(d);
-            series_to_associate = &s;
+            const asset_id_type &p_id = itr_parent->id;
+            const asset_object &p = p_id(d);
+            series_to_associate = &p;
+
+            // Verify that the issuer of the operation is also the issuer of the parent Series
+            FC_ASSERT(op.issuer == p.issuer,
+                      "Minting may only be initiated by the Series Issuer! (${op.issuer} != ${series_issuer})",
+                      ("op.issuer", op.issuer)("series_issuer", p.issuer));
 
             // Determine the currently expected maximum backing behind the token to mint
             const asset_dynamic_data_object &t_addo = t.dynamic_asset_data_id(d);
@@ -234,7 +234,14 @@ namespace graphene {
             // - royalty fee percentage
             const auto &series_name_idx = d.get_index_type<nft_series_index>().indices().get<by_nft_series_name>();
             auto series_itr = series_name_idx.find(parent_asset_name);
+            FC_ASSERT(series_itr != series_name_idx.end());
             const nft_series_object &so = *series_itr;
+            // Perform an additional sanity check associating the Series with the parent asset
+            FC_ASSERT(so.asset_id == p.id,
+                      "The Series asset ID (${series_asset}) should match the parent asset to be minted (${parent_asset})",
+                      ("series_asset", so.asset_id)
+                      ("parent_asset", p.id)
+            );
             const fc::uint128_t &royalty_for_full_token = fc::uint128_t(t_max_supply.value) * so.royalty_fee_centipercent / GRAPHENE_100_PERCENT;
             FC_ASSERT(royalty_for_full_token <= core_addo.current_supply);
 
