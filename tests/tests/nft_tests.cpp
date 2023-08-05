@@ -111,6 +111,45 @@ struct nft_database_fixture : database_fixture {
       trx.clear();
       return sub_asset_id;
    }
+
+   const limit_order_create_operation create_sell_operation(const account_id_type &seller,
+                                                            const asset &amount,
+                                                            const asset &recv,
+                                                            const time_point_sec order_expiration) {
+      limit_order_create_operation sell_order;
+      sell_order.seller = seller;
+      sell_order.amount_to_sell = amount;
+      sell_order.min_to_receive = recv;
+      sell_order.expiration = order_expiration;
+
+      return sell_order;
+   }
+
+   // Create a UIA with a specified precision and market fee percentage
+   const asset_object& create_uia(const string &name, const account_object &issuer,
+                                  uint16_t flags, const uint64_t max_supply,
+                                  const uint8_t precision, uint16_t market_fee_percent) {
+      asset_create_operation creator;
+      creator.issuer = issuer.id;
+      creator.fee = asset();
+      creator.symbol = name;
+      creator.precision = precision;
+      creator.common_options.core_exchange_rate = price(asset(1, asset_id_type(1)), asset(1));
+      creator.common_options.initial_max_supply = max_supply;
+      creator.common_options.flags = flags;
+      creator.common_options.issuer_permissions = flags;
+      creator.common_options.market_fee_percent = market_fee_percent;
+      trx.operations.clear();
+      trx.operations.push_back(std::move(creator));
+      trx.validate();
+      processed_transaction ptx = PUSH_TX(db, trx, ~0);
+      trx.operations.clear();
+      return db.get<asset_object>(ptx.operation_results[0].get<object_id_type>());
+   }
+
+   // Test secondary sales of single-subdivision assets
+   // subject to a particular market fee percentage
+   void test_single_division_secondary_sales(uint16_t market_fee_percent);
 };
 
 
@@ -4422,4 +4461,368 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_a ) {
    } FC_LOG_AND_RETHROW()
 }
 
+
+/**
+ * Test sale of single-subdivision assets with and without market fees
+ * to check for potential problems with secondary sales.
+ *
+ * NOTE: At 100% market fee, the buyer of the single-subdivision NFT will pay for the NFT
+ * but will receive nothing because the market fee will completely consume what is being sold.
+ * The NFT will then reside, according to db_market.pay_market_fees(), in the vesting balance of either:
+ * the seller's registrar,
+ * the seller's referrer, or
+ * the asset's accumulated fees.
+ */
+
+/*
+ * Test sales of single-subdivision assets WITHOUT market fees
+ */
+BOOST_AUTO_TEST_CASE( single_division_secondary_sales_with_0percent_market_fees ) {
+   try {
+      BOOST_TEST_MESSAGE("Testing secondary sales of single-subdivision assets with 0% market fee");
+      uint16_t market_fee_percent = 0 * GRAPHENE_1_PERCENT;
+      test_single_division_secondary_sales(market_fee_percent);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/*
+ * Test sales of single-subdivision assets WITH market fees
+ */
+BOOST_AUTO_TEST_CASE( single_division_secondary_sales_with_1percent_market_fee ) {
+   try {
+      BOOST_TEST_MESSAGE("Testing secondary sales of single-subdivision assets with 1% market fee");
+      uint16_t market_fee_percent = 1 * GRAPHENE_1_PERCENT;
+      test_single_division_secondary_sales(market_fee_percent);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/*
+ * Test sales of single-subdivision assets WITH market fees
+ */
+BOOST_AUTO_TEST_CASE( single_division_secondary_sales_with_99percent_market_fee ) {
+   try {
+      BOOST_TEST_MESSAGE("Testing secondary sales of single-subdivision assets with 99% market fee");
+      uint16_t market_fee_percent = 99 * GRAPHENE_1_PERCENT;
+      test_single_division_secondary_sales(market_fee_percent);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/*
+ * Test sales of single-subdivision assets WITH market fees
+ */
+BOOST_AUTO_TEST_CASE( single_division_secondary_sales_with_100percent_market_fee ) {
+   try {
+      BOOST_TEST_MESSAGE("Testing secondary sales of single-subdivision assets with 100% market fee");
+      uint16_t market_fee_percent = 100 * GRAPHENE_1_PERCENT;
+      test_single_division_secondary_sales(market_fee_percent);
+
+   } FC_LOG_AND_RETHROW()
+}
+
 BOOST_AUTO_TEST_SUITE_END()
+
+// Test sales of single-subdivision assets subject to a particular market fee percentage
+void nft_database_fixture::test_single_division_secondary_sales(uint16_t market_fee_percent) {
+   advance_past_m1_hardfork(); // Get past most hardforks
+
+   // Initialize
+   ACTORS((issuer)(alice)(bob)(charlie));
+   int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+   transfer(committee_account, issuer_id, graphene::chain::asset(init_balance));
+   transfer(committee_account, alice_id, graphene::chain::asset(init_balance));
+   transfer(committee_account, bob_id, graphene::chain::asset(init_balance));
+   transfer(committee_account, charlie_id, graphene::chain::asset(init_balance));
+   const asset_id_type core_id = asset_id_type();
+
+   // Issuer creates an asset
+   const string asset_name = "UNO";
+   const uint8_t asset_precision = 0; // 10^0 = 1.  There can be only one!
+   const uint64_t &whole_token_subdivisions = asset::scaled_precision(asset_precision).value;
+   const uint64_t &max_supply = whole_token_subdivisions;
+   const uint16_t flags = charge_market_fee;
+   const asset_object &asset_obj = create_uia(asset_name, issuer_id(db), flags,
+                                              max_supply, asset_precision, market_fee_percent);
+   const asset_id_type asset_id = asset_obj.id;
+
+   // Simple check of the market fee
+   if (market_fee_percent == GRAPHENE_100_PERCENT) {
+      BOOST_CHECK_EQUAL(1, db.calculate_market_fee(asset_obj, asset_obj.amount(1), true).amount.value);
+   } else {
+      BOOST_CHECK_EQUAL(0, db.calculate_market_fee(asset_obj, asset_obj.amount(1), true).amount.value);
+   }
+   BOOST_CHECK(asset_id == db.calculate_market_fee(asset_obj, asset_obj.amount(1), true).asset_id);
+
+   if (market_fee_percent == GRAPHENE_100_PERCENT) {
+      BOOST_CHECK_EQUAL(1, db.calculate_market_fee(asset_obj, asset_obj.amount(1), false).amount.value);
+   } else {
+      BOOST_CHECK_EQUAL(0, db.calculate_market_fee(asset_obj, asset_obj.amount(1), false).amount.value);
+   }
+   BOOST_CHECK(asset_id == db.calculate_market_fee(asset_obj, asset_obj.amount(1), true).asset_id);
+
+   // Issue an amount into existence
+   asset_issue_operation issue_op;
+   issue_op.issuer = issuer_id;
+   issue_op.asset_to_issue = asset_obj.amount(1);
+   issue_op.issue_to_account = alice_id;
+   trx.clear();
+   trx.operations.push_back(issue_op);
+   sign(trx, issuer_private_key);
+   PUSH_TX(db, trx);
+   // Verify balances
+   BOOST_REQUIRE_EQUAL(get_balance(alice_id, asset_id), 1);
+
+   ///
+   /// SALE #1
+   /// Alice attempts to sell it before Bob offers to buy it
+   ///
+   // Alice offers it for sale on the orderbook
+   const int64_t alice_core_balance_0 = get_balance(alice_id, core_id);
+   const time_point_sec order_expiration = time_point_sec::maximum();
+   limit_order_create_operation alice_sell_op = create_sell_operation(alice_id,
+                                                                      asset(1, asset_id),
+                                                                      asset(100, core_id),
+                                                                      order_expiration);
+   trx.clear();
+   trx.operations.push_back(alice_sell_op);
+   sign(trx, alice_private_key);
+   processed_transaction ptx = PUSH_TX(db, trx); // No exception should be thrown
+   limit_order_id_type alice_order_id = ptx.operation_results[0].get<object_id_type>();
+   // Verify balances
+   // Alice's balance of the asset should be zero because it should be present on the orderbook
+   BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_core_balance_0); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(alice_id, asset_id), 0);
+
+   // Bob offers it for sale on the orderbook
+   const int64_t bob_core_balance_0 = get_balance(bob_id, core_id);
+   limit_order_create_operation bob_sell_op = create_sell_operation(bob_id,
+                                                                    asset(100, core_id),
+                                                                    asset(1, asset_id),
+                                                                    order_expiration);
+   trx.clear();
+   trx.operations.push_back(bob_sell_op);
+   sign(trx, bob_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   limit_order_id_type bob_order_id = ptx.operation_results[0].get<object_id_type>();
+
+   // The orders should have been matched
+   // Verify new balances
+   BOOST_CHECK_EQUAL(get_balance(alice_id, asset_id), 0);
+   if (market_fee_percent == GRAPHENE_100_PERCENT) {
+      /*
+       * NOTE: At 100% market fee, the buyer of the single-subdivision NFT will pay for the NFT
+       * but will receive nothing because the market fee will completely consume what is being sold.
+       * The NFT will then reside, according to db_market.pay_market_fees(), in the vesting balance of either:
+       * the seller's registrar,
+       * the seller's referrer, or
+       * the asset's accumulated fees.
+       */
+      BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 0);
+   } else {
+      BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 1);
+   }
+
+   BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_core_balance_0 + 100); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_core_balance_0 - 100); // Assuming zero-fee operations
+
+
+   if (market_fee_percent == GRAPHENE_100_PERCENT) {
+      // Check accumulated fees
+      const asset_dynamic_data_object& asset_dynamic_data = asset_obj.dynamic_asset_data_id(db);
+      BOOST_CHECK_EQUAL(asset_dynamic_data.accumulated_fees.value, 1);
+
+      // Cease testing as the NFT is no longer held in any account
+      return;
+   }
+
+   ///
+   /// SALE #2
+   /// Alice attempts to buy it back before Bob offers it for sale
+   ///
+   // Advance to the next block
+   generate_block();
+   trx.clear();
+   set_expiration(db, trx);
+
+   // Alice offers to buy it from the orderbook
+   const int64_t alice_core_balance_1 = get_balance(alice_id, core_id);
+   alice_sell_op = create_sell_operation(alice_id,
+                                         asset(100, core_id),
+                                         asset(1, asset_id),
+                                         order_expiration);
+   trx.clear();
+   trx.operations.push_back(alice_sell_op);
+   sign(trx, alice_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   alice_order_id = ptx.operation_results[0].get<object_id_type>();
+   // Verify balances
+   // Alice's balance of the asset should be zero because it should be present on the orderbook
+   BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_core_balance_1 - 100); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(alice_id, asset_id), 0);
+
+   // Bob offers it for sale on the orderbook
+   const int64_t bob_core_balance_1 = get_balance(bob_id, core_id);
+   bob_sell_op = create_sell_operation(bob_id,
+                                       asset(1, asset_id),
+                                       asset(100, core_id),
+                                       order_expiration);
+   trx.clear();
+   trx.operations.push_back(bob_sell_op);
+   sign(trx, bob_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   bob_order_id = ptx.operation_results[0].get<object_id_type>();
+
+   // The orders should have been matched
+   // Verify new balances
+   BOOST_CHECK_EQUAL(get_balance(alice_id, asset_id), 1);
+   BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 0);
+
+   BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_core_balance_1 - 100); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_core_balance_1 + 100); // Assuming zero-fee operations
+
+
+   ///
+   /// SALE #3: Same as SALE #1 except for the sequence of orders
+   /// Alice attempts to buy it after Bob offers to buy it
+   ///
+   // Advance to the next block
+   generate_block();
+   trx.clear();
+   set_expiration(db, trx);
+
+   // Bob offers to buy it from the orderbook
+   const int64_t bob_core_balance_2 = get_balance(bob_id, core_id);
+   bob_sell_op = create_sell_operation(bob_id,
+                                       asset(100, core_id),
+                                       asset(1, asset_id),
+                                       order_expiration);
+   trx.clear();
+   trx.operations.push_back(bob_sell_op);
+   sign(trx, bob_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   bob_order_id = ptx.operation_results[0].get<object_id_type>();
+
+   // Verify balances
+   // Bob's balance of the asset should be zero because it should be present on the orderbook
+   BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_core_balance_2 - 100); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 0);
+
+   // Alice offers to sell it on the orderbook
+   const int64_t alice_core_balance_2 = get_balance(alice_id, core_id);
+   alice_sell_op = create_sell_operation(alice_id,
+                                         asset(1, asset_id),
+                                         asset(100, core_id),
+                                         order_expiration);
+   trx.clear();
+   trx.operations.push_back(alice_sell_op);
+   sign(trx, alice_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   alice_order_id = ptx.operation_results[0].get<object_id_type>();
+
+   // The orders should have been matched
+   // Verify new balances
+   BOOST_CHECK_EQUAL(get_balance(alice_id, asset_id), 0);
+   BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 1);
+
+   // 100 CORE subdivisions should have been paid
+   BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_core_balance_2 + 100); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_core_balance_2 - 100); // Assuming zero-fee operations
+
+
+   ///
+   /// SALE #4: Similar to SALE #2
+   /// Check whether the maker's offer is selected over the taker's offer
+   ///
+   // Advance to the next block
+   generate_block();
+   trx.clear();
+   set_expiration(db, trx);
+
+   // Maker: Bob offers to sell it from the orderbook
+   const int64_t bob_core_balance_3 = get_balance(bob_id, core_id);
+   bob_sell_op = create_sell_operation(bob_id,
+                                       asset(1, asset_id),
+                                       asset(100, core_id),
+                                       order_expiration);
+   trx.clear();
+   trx.operations.push_back(bob_sell_op);
+   sign(trx, bob_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   bob_order_id = ptx.operation_results[0].get<object_id_type>();
+
+   // Verify balances
+   // Bob's balance of the asset should be zero because it should be present on the orderbook
+   BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_core_balance_3); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 0);
+
+   // Taker: Alice offers to buy it on the orderbook offering to OVERPAY by 50 CORE
+   const int64_t alice_core_balance_3 = get_balance(alice_id, core_id);
+   alice_sell_op = create_sell_operation(alice_id,
+                                         asset(150, core_id),
+                                         asset(1, asset_id),
+                                         order_expiration);
+   trx.clear();
+   trx.operations.push_back(alice_sell_op);
+   sign(trx, alice_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   alice_order_id = ptx.operation_results[0].get<object_id_type>();
+
+   // The orders should have been matched
+   // Verify new balances
+   BOOST_CHECK_EQUAL(get_balance(alice_id, asset_id), 1);
+   BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 0);
+
+   // 100 CORE subdivisions should have been paid in favor of the taker
+   BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_core_balance_3 - 100); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_core_balance_3 + 100); // Assuming zero-fee operations
+
+   ///
+   /// SALE #5: Similar to SALE #4
+   /// Check whether the maker's offer is selected over the taker's offer
+   ///
+   // Advance to the next block
+   generate_block();
+   trx.clear();
+   set_expiration(db, trx);
+
+   // Maker: Bob offers to buy it from the orderbook
+   const int64_t bob_core_balance_4 = get_balance(bob_id, core_id);
+   bob_sell_op = create_sell_operation(bob_id,
+                                       asset(100, core_id),
+                                       asset(1, asset_id),
+                                       order_expiration);
+   trx.clear();
+   trx.operations.push_back(bob_sell_op);
+   sign(trx, bob_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   bob_order_id = ptx.operation_results[0].get<object_id_type>();
+
+   // Verify balances
+   // Bob's balance of the asset should be zero because it should be present on the orderbook
+   BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_core_balance_4 - 100); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 0);
+
+   // Taker: Alice offers to sell it on the orderbook by asking for only 75% of what is being asked
+   const int64_t alice_core_balance_4 = get_balance(alice_id, core_id);
+   alice_sell_op = create_sell_operation(alice_id,
+                                         asset(1, asset_id),
+                                         asset(75, core_id),
+                                         order_expiration);
+   trx.clear();
+   trx.operations.push_back(alice_sell_op);
+   sign(trx, alice_private_key);
+   ptx = PUSH_TX(db, trx); // No exception should be thrown
+   alice_order_id = ptx.operation_results[0].get<object_id_type>();
+
+   // The orders should have been matched
+   // Verify new balances
+   BOOST_CHECK_EQUAL(get_balance(alice_id, asset_id), 0);
+   BOOST_CHECK_EQUAL(get_balance(bob_id, asset_id), 1);
+
+   // 100 CORE subdivisions should have been paid in favor of the taker
+   BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_core_balance_4 + 100); // Assuming zero-fee operations
+   BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_core_balance_4 - 100); // Assuming zero-fee operations
+
+}
