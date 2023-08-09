@@ -4463,6 +4463,174 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_a ) {
 
 
 /**
+ * Test the database API ability to report NFT events in account history
+ */
+BOOST_AUTO_TEST_CASE( db_api_account_history_nft_burn_of_returned_tokens ) {
+   try {
+      BOOST_TEST_MESSAGE("Verifying NFT activity in account histories: nft_burn_of_returned_tokens");
+
+      // Initialize with another scenario
+      INVOKE(nft_burn_of_returned_tokens);
+      // Mimic the variables from the invoked test
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(alice);
+      GET_ACTOR(charlie);
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type series_id = get_asset(series_name).id;
+      const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+
+      // To permit the most recent account history to embed itself into a block
+      // and thereby become accessible in account history
+      generate_block();
+      graphene::app::history_api hist_api(app);
+
+      ///
+      /// Inspect Alice's account history
+      ///
+      vector <operation_history_object> histories;
+      histories = hist_api.get_account_history("alice");
+      int count = histories.size();
+      // Alices's history in this scenario should include:
+      // 1 Account creation
+      // 1 Transfer of CORE to Alice
+      // 1 UIA Creation
+      // 1 Series Creation
+      // 1 Create UIA #1
+      // 1 NFT Mint Token #1 (Associate UIA #1 with the Series)
+      // 1 Create UIA #2
+      // 1 NFT Mint Token #2 (Associate UIA #2 with the Series)
+      // 4 NFT Primary Transfers
+      // 4 NFT Burns
+      BOOST_CHECK_EQUAL(count, 16);
+
+      operation op;
+
+      // Account histories are sorted in decreasing time order
+      // The first operation should correspond to Alice's burning (as Series Issuer) of 750 subdivision of Token #2
+      op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<nft_burn_operation>());
+      nft_burn_operation burn_op = op.get<nft_burn_operation>();
+      BOOST_CHECK(burn_op.issuer == alice_id);
+      BOOST_CHECK(burn_op.amount == asset(750, sub_asset_2_id));
+
+      // The next operation should correspond to Alice's burning (as Series Issuer) of 250 subdivision of Token #2
+      op = histories[1].op;
+      BOOST_REQUIRE(op.is_type<nft_burn_operation>());
+      burn_op = op.get<nft_burn_operation>();
+      BOOST_CHECK(burn_op.issuer == alice_id);
+      BOOST_CHECK(burn_op.amount == asset(250, sub_asset_2_id));
+
+      // The next operation should correspond to Alice's burning (as Series Issuer) of 75 subdivision of Token #1
+      op = histories[2].op;
+      BOOST_REQUIRE(op.is_type<nft_burn_operation>());
+      burn_op = op.get<nft_burn_operation>();
+      BOOST_CHECK(burn_op.issuer == alice_id);
+      BOOST_CHECK(burn_op.amount == asset(75, sub_asset_1_id));
+
+      // The next operation should correspond to Alice's burning (as Series Issuer) of 25 subdivision of Token #1
+      op = histories[3].op;
+      BOOST_REQUIRE(op.is_type<nft_burn_operation>());
+      burn_op = op.get<nft_burn_operation>();
+      BOOST_CHECK(burn_op.issuer == alice_id);
+      BOOST_CHECK(burn_op.amount == asset(25, sub_asset_1_id));
+
+      // The next operation should correspond to Alice's primary transfer (as Series Manager) of 250 subdivision of Token #2
+      op = histories[4].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      nft_primary_transfer_operation ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == charlie_id);
+      BOOST_CHECK(ptx_op.amount == asset(250, sub_asset_2_id));
+
+      // The next operation should correspond to Alice's primary transfer (as Series Manager) of 350 subdivision of Token #2
+      op = histories[5].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == charlie_id);
+      BOOST_CHECK(ptx_op.amount == asset(350, sub_asset_2_id));
+
+      // The next operation should correspond to Alice's primary transfer (as Series Manager) of 400 subdivision of Token #2
+      op = histories[6].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == charlie_id);
+      BOOST_CHECK(ptx_op.amount == asset(400, sub_asset_2_id));
+
+      // The next operation should correspond to Alice's primary transfer (as Series Manager) of 40 subdivision of Token #1
+      op = histories[7].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == charlie_id);
+      BOOST_CHECK(ptx_op.amount == asset(40, sub_asset_1_id));
+
+      // The next operation should correspond to Alice's minting (as Series Issuer) of 1000 subdivision of Token #2
+      op = histories[8].op;
+      BOOST_REQUIRE(op.is_type<nft_mint_operation>());
+      nft_mint_operation mint_op = op.get<nft_mint_operation>();
+      BOOST_CHECK(mint_op.issuer == alice_id);
+      BOOST_CHECK(mint_op.asset_id == sub_asset_2_id);
+      BOOST_CHECK_EQUAL(mint_op.subdivisions.value, 1000);
+
+      // The next operation should correspond to Alice's creation of Token #2 as a UIA sub-asset
+      op = histories[9].op;
+      BOOST_REQUIRE(op.is_type<asset_create_operation>());
+      asset_create_operation asset_create_op = op.get<asset_create_operation  >();
+      BOOST_CHECK(asset_create_op.issuer == alice_id);
+      BOOST_CHECK(asset_create_op.symbol == sub_asset_2_name);
+      BOOST_CHECK(asset_create_op.precision == 3); // 10^3 = 1000 subdivision for a single unit
+
+      // The next operation should correspond to Alice's minting (as Series Issuer) of 100 subdivision of Token #1
+      op = histories[10].op;
+      BOOST_REQUIRE(op.is_type<nft_mint_operation>());
+      mint_op = op.get<nft_mint_operation>();
+      BOOST_CHECK(mint_op.issuer == alice_id);
+      BOOST_CHECK(mint_op.asset_id == sub_asset_1_id);
+      BOOST_CHECK_EQUAL(mint_op.subdivisions.value, 100);
+
+      // The next operation should correspond to Alice's creation of Token #1 as a UIA sub-asset
+      op = histories[11].op;
+      BOOST_REQUIRE(op.is_type<asset_create_operation>());
+      asset_create_op = op.get<asset_create_operation>();
+      BOOST_CHECK(asset_create_op.issuer == alice_id);
+      BOOST_CHECK(asset_create_op.symbol == sub_asset_1_name);
+      BOOST_CHECK(asset_create_op.precision == 2); // 10^2 = 100 subdivision for a single unit
+
+      // The next operation should correspond to Alice's creation of the Series
+      op = histories[12].op;
+      BOOST_REQUIRE(op.is_type<nft_series_create_operation>());
+      nft_series_create_operation nft_series_create_op = op.get<nft_series_create_operation>();
+      BOOST_CHECK(nft_series_create_op.issuer == alice_id);
+      BOOST_CHECK(nft_series_create_op.asset_id == series_id);
+      BOOST_CHECK(nft_series_create_op.manager == alice_id);
+      BOOST_CHECK(nft_series_create_op.beneficiary == alice_id);
+
+      // The next operation should correspond to Alice's creation of the Series UIA (parent asset)
+      op = histories[13].op;
+      BOOST_REQUIRE(op.is_type<asset_create_operation>());
+      asset_create_op = op.get<asset_create_operation>();
+      BOOST_CHECK(asset_create_op.issuer == alice_id);
+      BOOST_CHECK(asset_create_op.symbol == series_name);
+
+      // The next operation should correspond to the transfer of CORE to Alice
+      op = histories[14].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      transfer_operation transfer_op = op.get<transfer_operation>();
+      BOOST_CHECK(transfer_op.to == alice_id);
+      BOOST_CHECK(transfer_op.amount == asset(100 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+      // The next operation should correspond to Alice's account creation
+      op = histories[15].op;
+      BOOST_REQUIRE(op.is_type<account_create_operation>());
+      account_create_operation ac_op = op.get<account_create_operation>();
+      BOOST_CHECK_EQUAL(ac_op.name, "alice");
+
+   } FC_LOG_AND_RETHROW()
+}
+
+
+/**
  * Test sale of single-subdivision assets with and without market fees
  * to check for potential problems with secondary sales.
  *
