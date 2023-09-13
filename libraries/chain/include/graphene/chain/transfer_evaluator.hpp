@@ -25,6 +25,7 @@
 #include <graphene/protocol/operations.hpp>
 #include <graphene/chain/evaluator.hpp>
 #include <graphene/chain/database.hpp>
+#include <graphene/chain/nft_object.hpp>
 
 namespace graphene { namespace chain {
 
@@ -35,6 +36,11 @@ namespace graphene { namespace chain {
 
          void_result do_evaluate( const transfer_operation& o );
          void_result do_apply( const transfer_operation& o );
+
+         // The pointer to the NFT token object will be non-null only if an NFT royalty is required
+         const nft_token_object* _ptr_nft_obj = nullptr;
+         // The amount of the NFT royalty payment
+         asset _nft_royalty;
    };
 
    class override_transfer_evaluator : public evaluator<override_transfer_evaluator>
