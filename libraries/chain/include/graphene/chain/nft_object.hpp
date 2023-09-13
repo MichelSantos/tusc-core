@@ -133,6 +133,9 @@ namespace graphene {
 
          /// Whether backing is required
          bool is_backable() const;
+
+         /// Reservoir of secondary royalties
+         asset royalty_reservoir;
       };
 
       struct by_nft_token_name;
@@ -178,6 +181,7 @@ FC_REFLECT_DERIVED( graphene::chain::nft_token_object, (graphene::db::object),
                     (amount_burned)
                     (amount_on_primary_sale)
                     (current_backing)
+                    (royalty_reservoir)
 )
 
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::chain::nft_series_object )
