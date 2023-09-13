@@ -274,6 +274,7 @@ namespace graphene {
                      _obj.min_price_per_subdivision = op.min_price_per_subdivision;
                      _obj.req_backing_per_subdivision = op.req_backing_per_subdivision;
                      _obj.current_backing = asset(0, op.req_backing_per_subdivision.asset_id);
+                     _obj.royalty_reservoir = asset(0, op.min_price_per_subdivision.asset_id);
                   });
                ptr_t_obj = &obj;
 
