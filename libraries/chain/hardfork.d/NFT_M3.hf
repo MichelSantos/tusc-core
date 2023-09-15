@@ -1,0 +1,5 @@
+// NFT Milestone 3 (M3) hardfork check
+#ifndef HARDFORK_NFT_M3_TIME
+#define HARDFORK_NFT_M3_TIME (fc::time_point_sec( 1693828800 )) // Monday, September 4, 2023 12:00:00 UTC
+#define HARDFORK_NFT_M3_PASSED(now) (now >= HARDFORK_NFT_M3_TIME)
+#endif
