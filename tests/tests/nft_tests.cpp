@@ -1375,7 +1375,7 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_a) {
       BOOST_REQUIRE_EQUAL(t2_1.amount_burned.value, 0);
       BOOST_REQUIRE_EQUAL(t2_1.amount_on_primary_sale.value, 0);
       BOOST_REQUIRE(t2_1.current_backing == asset(200000, core_id)); // (400 NFT) * (500 CORE / NFT)
-      // Verify everyone's balances before the primary transfer
+      // Verify everyone's balances after the primary transfer
       BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
       BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
       BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 400);
@@ -1407,7 +1407,7 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_a) {
       BOOST_REQUIRE_EQUAL(t2_2.amount_burned.value, 0);
       BOOST_REQUIRE_EQUAL(t2_2.amount_on_primary_sale.value, 0);
       BOOST_REQUIRE(t2_2.current_backing == asset(375000, core_id)); // (750 NFT) * (500 CORE / NFT)
-      // Verify everyone's balances before the primary transfer
+      // Verify everyone's balances after the primary transfer
       BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
       BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
       BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 750);
@@ -1449,7 +1449,7 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_a) {
       BOOST_REQUIRE_EQUAL(t2_3.amount_burned.value, 0);
       BOOST_REQUIRE_EQUAL(t2_3.amount_on_primary_sale.value, 0);
       BOOST_REQUIRE(t2_3.current_backing == asset(500000, core_id)); // (1000 NFT) * (500 CORE / NFT)
-      // Verify everyone's balances before the primary transfer
+      // Verify everyone's balances after the primary transfer
       BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
       BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
       BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000);
@@ -1479,7 +1479,7 @@ BOOST_AUTO_TEST_CASE(nft_primary_transfer_a) {
       BOOST_REQUIRE_EQUAL(t2_4.amount_burned.value, 0);
       BOOST_REQUIRE_EQUAL(t2_4.amount_on_primary_sale.value, 0);
       BOOST_REQUIRE(t2_4.current_backing == asset(500000, core_id)); // (1000 NFT) * (500 CORE / NFT)
-      // Verify everyone's balances before the primary transfer
+      // Verify everyone's balances after the primary transfer
       BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
       BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
       BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000);
