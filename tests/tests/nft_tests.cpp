@@ -58,6 +58,11 @@ struct nft_database_fixture : database_fixture {
       set_expiration(db, trx);
    }
 
+   void advance_past_m3_hardfork() {
+      generate_blocks(HARDFORK_NFT_M3_TIME);
+      set_expiration(db, trx);
+   }
+
    // Create and asset and series from a name
    const asset_id_type create_asset_and_series(string series_name,
                                                account_id_type issuer_id, private_key_type issuer_priv_key,
@@ -4686,6 +4691,480 @@ BOOST_AUTO_TEST_CASE( single_division_secondary_sales_with_100percent_market_fee
       BOOST_TEST_MESSAGE("Testing secondary sales of single-subdivision assets with 100% market fee");
       uint16_t market_fee_percent = 100 * GRAPHENE_1_PERCENT;
       test_single_division_secondary_sales(market_fee_percent);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test secondary transfer of an NFT with a 0% royalty fee
+ */
+BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_collection_a) {
+   try {
+      INVOKE(nft_primary_transfer_a);
+      advance_past_m3_hardfork();
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      ACTOR(doug);
+      share_type alice_init_balance_core = get_balance(alice_id, core_id);
+      share_type bob_init_balance_core = get_balance(bob_id, core_id);
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+      share_type doug_init_balance_core = get_balance(doug_id, core_id);
+      BOOST_REQUIRE_EQUAL(doug_init_balance_core.value, 0);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+      graphene::chain::transfer_operation tx_op;
+
+      // Verify everyone's balances of Token #1 at the beginning of the test
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_1_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_1_id), 40);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 0);
+
+      // Verify everyone's balances of Token #2 at the beginning of the test
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_2_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1000);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_2_id), 0);
+
+      ///
+      /// Secondary transfer of an NFT
+      /// 5 subdivision of NFT #1 will be transferred.
+      /// With an RFP = 0% and a minimum price per subdivision of 0 CORE
+      /// The expected royalty fee should equal 0 CORE.
+      /// Therefore, the CORE balances should be unaffected
+      ///
+      asset amount1 = graphene::chain::asset(5, sub_asset_1_id);
+      transfer(charlie_id, doug_id, amount1);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_1_id), 40 - 5);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_1_id), 5);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+BOOST_AUTO_TEST_CASE(nft_primary_transfer_d) {
+   try {
+      advance_past_m3_hardfork();
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      ACTORS((creatora)(creatorb)(mgra)(mgrb)(beneficiarya)(beneficiaryb)(treasurya)(alice)(bob)(charlie)(doug));
+      int64_t init_balance(5000000 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, creatora_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, mgra_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, treasurya_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, alice_id, graphene::chain::asset(init_balance));
+      transfer(committee_account, bob_id, graphene::chain::asset(init_balance));
+
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+      share_type doug_init_balance_core = get_balance(doug_id, core_id);
+      BOOST_CHECK_EQUAL(charlie_init_balance_core.value, 0);
+      BOOST_CHECK_EQUAL(doug_init_balance_core.value, 0);
+
+      ///
+      /// Create an NFT Series with a positive royalty
+      ///
+      const string series_a1_name = "SERIESA";
+      uint16_t royalty_fee_centipercent = 5 * GRAPHENE_1_PERCENT;
+      create_asset_and_series(series_a1_name, creatora_id,
+                              creatora_private_key,
+                              beneficiarya_id, mgra_id,
+                              royalty_fee_centipercent);
+
+      // Create an asset with a minimum price of 0 CORE per subdivision
+      // and mint it into the Series
+      const string sub_asset_1_name = "SERIESA.SUB1";
+      asset req_backing_per_subdivision = asset(0, core_id);
+      asset min_price_per_subdivision = asset(0, core_id);
+      const uint16_t flags = DEFAULT_UIA_ASSET_ISSUER_PERMISSION ^ transfer_restricted; // Exclude transfer restrictions
+      const asset_id_type sub_asset_1_id = create_sub_asset_and_mint(sub_asset_1_name, 2,
+                                                                     creatora_id, creatora_private_key,
+                                                                     req_backing_per_subdivision,
+                                                                     min_price_per_subdivision,
+                                                                     flags);
+
+      // Create an asset with a minimum price of 10 CORE per subdivision
+      // and mint it into the Series
+      const string sub_asset_2_name = "SERIESA.SUB2";
+      req_backing_per_subdivision = asset(10, core_id);
+      min_price_per_subdivision = asset(10, core_id);
+      const asset_id_type sub_asset_2_id = create_sub_asset_and_mint(sub_asset_2_name, 2,
+                                                                     creatora_id, creatora_private_key,
+                                                                     req_backing_per_subdivision,
+                                                                     min_price_per_subdivision,
+                                                                     flags);
+
+      // Create an asset with a minimum price of 10 CORE per subdivision
+      // and mint it into the Series
+      const string sub_asset_3_name = "SERIESA.SUB3";
+      req_backing_per_subdivision = asset(25, core_id);
+      min_price_per_subdivision = asset(75 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id);
+      const asset_id_type sub_asset_3_id = create_sub_asset_and_mint(sub_asset_3_name, 2,
+                                                                     creatora_id, creatora_private_key,
+                                                                     req_backing_per_subdivision,
+                                                                     min_price_per_subdivision,
+                                                                     flags);
+
+      // Primary transfer
+      // Manager attempts to primary transfer 40 subdivisions (40%) of the token from the Inventory
+      graphene::chain::nft_primary_transfer_operation ptx_op;
+
+      BOOST_TEST_MESSAGE("Primary transfer of 40% of Token #1");
+      ptx_op = nft_primary_transfer_operation();
+      ptx_op.amount = asset(40, sub_asset_1_id);
+      ptx_op.to = alice_id;
+      ptx_op.manager = mgra_id;
+      // No provisioner is required for NFTs that do not require backing
+      trx.clear();
+      trx.operations.push_back(ptx_op);
+      sign(trx, mgra_private_key);
+      PUSH_TX(db, trx);
+
+      BOOST_TEST_MESSAGE("Primary transfer of 40% of Token #2");
+      ptx_op = nft_primary_transfer_operation();
+      ptx_op.amount = asset(40, sub_asset_2_id);
+      ptx_op.to = bob_id;
+      ptx_op.manager = mgra_id;
+      ptx_op.provisioner = treasurya_id;
+      trx.clear();
+      trx.operations.push_back(ptx_op);
+      sign(trx, mgra_private_key);
+      sign(trx, treasurya_private_key);
+      PUSH_TX(db, trx);
+
+      // Verify balances of Token #1
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_1_id), 40);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_1_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_1_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_1_id), 0);
+
+      // Verify balances of Token #2
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_2_id), 40);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_2_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_2_id), 0);
+
+      BOOST_TEST_MESSAGE("Primary transfer of 100% of Token #3");
+      ptx_op = nft_primary_transfer_operation();
+      ptx_op.amount = asset(100, sub_asset_3_id);
+      ptx_op.to = bob_id;
+      ptx_op.manager = mgra_id;
+      ptx_op.provisioner = treasurya_id;
+      trx.clear();
+      trx.operations.push_back(ptx_op);
+      sign(trx, mgra_private_key);
+      sign(trx, treasurya_private_key);
+      PUSH_TX(db, trx);
+
+      // Verify everyone's balances of Token #1
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_1_id), 40);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_1_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_1_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_1_id), 0);
+
+      // Verify everyone's balances of Token #2
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_2_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_2_id), 40);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_2_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_2_id), 0);
+
+      // Verify everyone's balances of Token #3
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_3_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_3_id), 100);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_3_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_3_id), 0);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test secondary transfer of an NFT with a 5% royalty fee
+ */
+BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_collection_d) {
+   try {
+      INVOKE(nft_primary_transfer_d);
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      GET_ACTOR(doug);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+
+      share_type alice_init_balance_core = get_balance(alice_id, core_id);
+      share_type bob_init_balance_core = get_balance(bob_id, core_id);
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+      share_type doug_init_balance_core = get_balance(doug_id, core_id);
+      BOOST_CHECK_EQUAL(charlie_init_balance_core.value, 0);
+      BOOST_CHECK_EQUAL(doug_init_balance_core.value, 0);
+
+      ///
+      /// Secondary transfer of an NFT
+      /// 5 subdivision of NFT #1 will be transferred.
+      /// With an RFP = 5% and a minimum price per subdivision of 0 CORE
+      /// The expected royalty fee should equal 0 CORE.
+      /// Therefore, the CORE balances should be unaffected
+      ///
+      asset amount1 = graphene::chain::asset(5, sub_asset_1_id);
+      transfer(alice_id, charlie_id, amount1);
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_1_id), 40 - 5);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_1_id), 5);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      {
+         auto token_itr = token_name_idx.find(sub_asset_1_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      ///
+      /// Secondary transfer of an NFT
+      /// 5 subdivision of NFT #2 will be transferred.
+      /// With an RFP = 5% and a minimum price of 10 CORE per subdivision
+      /// The expected royalty fee should equal 5% * (50 CORE) = 2.5 CORE -> 3 CORE
+      /// Therefore, the CORE balances should be affected.
+      ///
+      asset amount2 = graphene::chain::asset(5, sub_asset_2_id);
+      transfer(bob_id, charlie_id, amount2);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_2_id), 40 - 5);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_2_id), 5);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value - 3);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(3, core_id));
+      }
+
+      ///
+      /// Secondary transfer of an NFT
+      /// 5 subdivision of NFT #1 will be transferred **by an account with 0 CORE**.
+      /// With an RFP = 5% and a minimum price per subdivision of 0 CORE
+      /// The expected royalty fee should equal 0 CORE.
+      /// Therefore, the CORE balances should be unaffected
+      ///
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_1_id), 5);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_1_id), 0);
+      transfer(charlie_id, doug_id, amount1); // Doug is the new recipient
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_1_id), 40 - 5);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_1_id), 5 - 5);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_1_id), 5);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value - 3);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      {
+         auto token_itr = token_name_idx.find(sub_asset_1_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      ///
+      /// Secondary transfer of an NFT
+      /// 5 subdivision of NFT #2 will be attempt to be transferred
+      /// **by an account with 0 CORE**.
+      /// With an RFP = 5% and a minimum price of 10 CORE per subdivision
+      /// The expected royalty fee should equal 5% * (50 CORE) = 2.5 CORE -> 3 CORE
+      /// However the attempted transfer should be rejected due to the sender
+      /// having insufficient funds to pay the royalty fee.
+      ///
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, core_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(charlie_id, sub_asset_2_id), 5);
+      BOOST_REQUIRE_EQUAL(get_balance(doug_id, sub_asset_2_id), 0);
+      REQUIRE_EXCEPTION_WITH_TEXT(transfer(charlie_id, doug_id, amount2), "Insufficient Balance to pay NFT royalty");
+
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_2_id), 40 - 5);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_2_id), 5);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_2_id), 0);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value - 3);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(3, core_id));
+      }
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test "tiny" secondary transfer of an NFT with a 5% royalty fee
+ * which should result in a royalty payment that is rounded up to 1 CORE
+ */
+BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_collection_tiny) {
+   try {
+      INVOKE(nft_primary_transfer_d);
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      GET_ACTOR(doug);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+
+      share_type alice_init_balance_core = get_balance(alice_id, core_id);
+      share_type bob_init_balance_core = get_balance(bob_id, core_id);
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+      share_type doug_init_balance_core = get_balance(doug_id, core_id);
+      BOOST_CHECK_EQUAL(charlie_init_balance_core.value, 0);
+      BOOST_CHECK_EQUAL(doug_init_balance_core.value, 0);
+
+      ///
+      /// Secondary transfer of an NFT
+      /// 1 subdivision of NFT #1 will be transferred.
+      /// With an RFP = 5% and a minimum price per subdivision of 0 CORE
+      /// The expected royalty fee should equal 0 CORE.
+      /// Therefore, the CORE balances should be unaffected
+      ///
+      asset amount1 = graphene::chain::asset(1, sub_asset_1_id);
+      transfer(alice_id, charlie_id, amount1);
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_1_id), 40 - 1);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_1_id), 1);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      {
+         auto token_itr = token_name_idx.find(sub_asset_1_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      ///
+      /// Secondary transfer of an NFT
+      /// 1 subdivision of NFT #2 will be transferred.
+      /// With an RFP = 5% and a minimum price of 10 CORE per subdivision
+      /// The expected royalty fee should equal 5% * (10 CORE) = 0.5 CORE -> 1 CORE
+      /// Therefore, the CORE balances should be affected.
+      ///
+      asset amount2 = graphene::chain::asset(1, sub_asset_2_id);
+      transfer(bob_id, charlie_id, amount2);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_2_id), 40 - 1);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_2_id), 1);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value - 1);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(1, core_id));
+      }
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test secondary transfer of an NFT with a 5% royalty fee
+ * and large minimum price that requires a royalty payment
+ * exceeding the supply of the core token.
+ */
+BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_collection_large) {
+   try {
+      INVOKE(nft_primary_transfer_d);
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      GET_ACTOR(doug);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_3_name = series_name + ".SUB3";
+      const asset_id_type sub_asset_3_id = get_asset(sub_asset_3_name).id;
+
+      share_type alice_init_balance_core = get_balance(alice_id, core_id);
+      share_type bob_init_balance_core = get_balance(bob_id, core_id);
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+      share_type doug_init_balance_core = get_balance(doug_id, core_id);
+      BOOST_REQUIRE_EQUAL(charlie_init_balance_core.value, 0);
+      BOOST_REQUIRE_EQUAL(doug_init_balance_core.value, 0);
+
+      ///
+      /// Secondary transfer of an NFT
+      /// 100 subdivision of NFT #3 will be transferred.
+      /// With an RFP = 5% and a minimum price per subdivision of 75 * GRAPHENE_BLOCKCHAIN_PRECISION CORE
+      /// The expected royalty fee should equal 375 * GRAPHENE_BLOCKCHAIN_PRECISION CORE.
+      /// Therefore, the CORE balances should be unaffected
+      ///
+      BOOST_REQUIRE_EQUAL(get_balance(bob_id, sub_asset_3_id), 100);
+      asset amount3 = graphene::chain::asset(100, sub_asset_3_id);
+      transfer(bob_id, charlie_id, amount3);
+      BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_3_id), 100 - 100);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_3_id), 100);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value - (375 * GRAPHENE_BLOCKCHAIN_PRECISION));
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      {
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(375 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      }
 
    } FC_LOG_AND_RETHROW()
 }

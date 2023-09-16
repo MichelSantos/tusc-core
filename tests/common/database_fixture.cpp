@@ -571,6 +571,9 @@ void database_fixture_base::verify_asset_supplies( const database& db )
 
       // Backing behind a token
       total_balances[token_obj.current_backing.asset_id] += token_obj.current_backing.amount;
+
+      // Royalties present in a token's reservoir before distribution to royalty claimants
+      total_balances[token_obj.royalty_reservoir.asset_id] += token_obj.royalty_reservoir.amount;
    }
 
    // Check the supply of non-core assets
