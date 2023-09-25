@@ -181,6 +181,25 @@ namespace graphene {
 
       };
 
+      struct nft_redeemed_operation : public base_operation {
+         struct fee_parameters_type {};
+
+         nft_redeemed_operation() {}
+         nft_redeemed_operation( account_id_type bearer, asset turned_in, asset taken_out )
+            : bearer(bearer), redemption(turned_in), redemption_value(taken_out) {}
+
+         account_id_type fee_payer()const { return bearer; }
+         void validate()const { FC_ASSERT( !"virtual operation" ); }
+
+         share_type      calculate_fee(const fee_parameters_type& k)const { return 0; }
+
+         account_id_type bearer;
+         asset redemption;
+         asset redemption_value;
+
+         asset fee;
+      };
+
       struct nft_burn_operation : public base_operation {
          struct fee_parameters_type {
             uint64_t fee = 10 * GRAPHENE_BLOCKCHAIN_PRECISION;
@@ -239,6 +258,10 @@ FC_REFLECT( graphene::protocol::nft_return_operation,
 (fee)(bearer)(amount)(extensions)
 )
 
+FC_REFLECT( graphene::protocol::nft_redeemed_operation::fee_parameters_type, ) // VIRTUAL
+FC_REFLECT( graphene::protocol::nft_redeemed_operation,
+(fee)(bearer)(redemption)(redemption_value))
+
 FC_REFLECT( graphene::protocol::nft_burn_operation::fee_parameters_type, (fee)
 )
 
@@ -257,6 +280,8 @@ GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_primary_transfe
 
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_return_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_return_operation )
+
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_redeemed_operation )
 
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation )

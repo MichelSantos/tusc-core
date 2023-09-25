@@ -59,6 +59,7 @@ struct hardfork_visitor {
                                nft_primary_transfer_operation>;
    using nft_m2_ops = TL::list<nft_return_operation,
                                nft_burn_operation>;
+   using nft_m3_ops = TL::list<nft_redeemed_operation>;
    fc::time_point_sec now;
 
    hardfork_visitor(fc::time_point_sec now) : now(now) {}
@@ -83,6 +84,9 @@ struct hardfork_visitor {
    template<typename Op>
    std::enable_if_t<TL::contains<nft_m2_ops, Op>(), bool>
    visit() { return HARDFORK_NFT_M2_PASSED(now); }
+   template<typename Op>
+   std::enable_if_t<TL::contains<nft_m3_ops, Op>(), bool>
+   visit() { return HARDFORK_NFT_M3_PASSED(now); }
    /// @}
 
    /// typelist::runtime::dispatch adaptor
