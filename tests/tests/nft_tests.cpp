@@ -4389,6 +4389,7 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_a ) {
       // Initialize with another scenario
       INVOKE(nft_return_of_complete_returns_a);
       // Mimic the variables from the invoked test
+      const asset_id_type core_id = asset_id_type();
       GET_ACTOR(charlie);
       const string series_name = "SERIESA";
       const string sub_asset_1_name = series_name + ".SUB1";
@@ -4412,53 +4413,63 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_a ) {
       // 1 Creation of Charlie's account
       // 4 NFT Primary Transfer to Charlie
       // 2 NFT Returns by Charlie
-      BOOST_CHECK(count == 7);
+      // 1 NFT Redeemed for Charlie because 1 of the NFT returns was for a backed NFT
+      BOOST_CHECK(count == 8);
 
       // Account histories are sorted in decreasing time order
-      // The first operation should correspond to Charlie's returning 1000 subdivision of Token #2
+      // The first operation should correspond to Charlie's virtual redemption operation
+      // for the return of 1000 subdivision of Token #2
       op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<nft_redeemed_operation>());
+      nft_redeemed_operation redeemed_op = op.get<nft_redeemed_operation>();
+      BOOST_CHECK(redeemed_op.bearer == charlie_id);
+      BOOST_CHECK(redeemed_op.redemption == asset(1000, sub_asset_2_id));
+      BOOST_CHECK(redeemed_op.redemption_value == asset(500000, core_id));
+
+      // The next operation should correspond to Charlie's returning 1000 subdivision of Token #2
+      op = histories[1].op;
       BOOST_REQUIRE(op.is_type<nft_return_operation>());
       nft_return_operation return_op = op.get<nft_return_operation>();
       BOOST_CHECK(return_op.bearer == charlie_id);
       BOOST_CHECK(return_op.amount == asset(1000, sub_asset_2_id));
 
       // The next operation should correspond to Charlie's returning 40 subdivision of Token #1
-      op = histories[1].op;
+      op = histories[2].op;
       BOOST_REQUIRE(op.is_type<nft_return_operation>());
       return_op = op.get<nft_return_operation>();
       BOOST_CHECK(return_op.bearer == charlie_id);
       BOOST_CHECK(return_op.amount == asset(40, sub_asset_1_id));
 
       // The next operation should correspond to Charlie's receipt of 250 subdivision of Token #2
-      op = histories[2].op;
+      op = histories[3].op;
       BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
       nft_primary_transfer_operation ptx_op = op.get<nft_primary_transfer_operation>();
       BOOST_CHECK(ptx_op.to == charlie_id);
       BOOST_CHECK(ptx_op.amount == asset(250, sub_asset_2_id));
 
       // The next operation should correspond to Charlie's receipt of 350 subdivision of Token #2
-      op = histories[3].op;
+      op = histories[4].op;
       BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
       ptx_op = op.get<nft_primary_transfer_operation>();
       BOOST_CHECK(ptx_op.to == charlie_id);
       BOOST_CHECK(ptx_op.amount == asset(350, sub_asset_2_id));
 
       // The next operation should correspond to Charlie's receipt of 400 subdivision of Token #2
-      op = histories[4].op;
+      op = histories[5].op;
       BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
       ptx_op = op.get<nft_primary_transfer_operation>();
       BOOST_CHECK(ptx_op.to == charlie_id);
       BOOST_CHECK(ptx_op.amount == asset(400, sub_asset_2_id));
 
       // The next operation should correspond to Charlie's receipt of 40 subdivision of Token #1
-      op = histories[5].op;
+      op = histories[6].op;
       BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
       ptx_op = op.get<nft_primary_transfer_operation>();
       BOOST_CHECK(ptx_op.to == charlie_id);
       BOOST_CHECK(ptx_op.amount == asset(40, sub_asset_1_id));
 
       // The next operation should correspond to Charlie's account creation
-      op = histories[6].op;
+      op = histories[7].op;
       BOOST_REQUIRE(op.is_type<account_create_operation>());
       account_create_operation ac_op = op.get<account_create_operation>();
       BOOST_CHECK_EQUAL(ac_op.name, "charlie");
