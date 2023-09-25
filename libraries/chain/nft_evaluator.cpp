@@ -516,6 +516,9 @@ namespace graphene {
             // Increase the bearer's balance with backing **if** it is a redemption
             if (is_redemption) {
                d.adjust_balance(op.bearer, _redemption_amount);
+
+               // Virtual operation for account history
+               db().push_applied_operation(nft_redeemed_operation(op.bearer, op.amount, _redemption_amount));
             }
 
             return void_result();
