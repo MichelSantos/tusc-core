@@ -35,6 +35,7 @@
 #include <graphene/grouped_orders/grouped_orders_plugin.hpp>
 #include <graphene/api_helper_indexes/api_helper_indexes.hpp>
 #include <graphene/custom_operations/custom_operations_plugin.hpp>
+#include <graphene/nft_history/nft_history.hpp>
 
 #include <fc/thread/thread.hpp>
 #include <fc/interprocess/signals.hpp>
@@ -120,6 +121,7 @@ int main(int argc, char** argv) {
       node->register_plugin<graphene::grouped_orders::grouped_orders_plugin>();
       node->register_plugin<graphene::api_helper_indexes::api_helper_indexes>();
       node->register_plugin<graphene::custom_operations::custom_operations_plugin>();
+      node->register_plugin<graphene::nft_history::nft_history>();
 
       // add plugin options to config
       try
