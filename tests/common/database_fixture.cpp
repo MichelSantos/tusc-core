@@ -31,6 +31,7 @@
 #include <graphene/api_helper_indexes/api_helper_indexes.hpp>
 #include <graphene/es_objects/es_objects.hpp>
 #include <graphene/custom_operations/custom_operations_plugin.hpp>
+#include <graphene/nft_history/nft_history.hpp>
 
 #include <graphene/chain/balance_object.hpp>
 #include <graphene/chain/committee_member_object.hpp>
@@ -390,6 +391,10 @@ std::shared_ptr<boost::program_options::variables_map> database_fixture_base::in
 
    fixture.app.register_plugin<graphene::market_history::market_history_plugin>(true);
    fixture.app.register_plugin<graphene::grouped_orders::grouped_orders_plugin>(true);
+
+   if (fixture.current_test_name.find("nft_history") != std::string::npos) {
+      fixture.app.register_plugin<graphene::nft_history::nft_history>(true);
+   }
 
    return sharable_options;
 }

@@ -36,12 +36,13 @@
 
 #include <graphene/app/database_api.hpp> // For testing current state
 #include <graphene/app/api.hpp> // For testing account history
+#include <graphene/nft_history/nft_history.hpp> // For testing NFT history
 
 #include "../common/database_fixture.hpp"
 
 using namespace graphene::chain;
 using namespace graphene::chain::test;
-
+using namespace graphene::app;
 
 struct nft_database_fixture : database_fixture {
    nft_database_fixture()
@@ -4917,8 +4918,10 @@ BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_collection_d) {
       const string series_name = "SERIESA";
       const string sub_asset_1_name = series_name + ".SUB1";
       const string sub_asset_2_name = series_name + ".SUB2";
+      const string sub_asset_3_name = series_name + ".SUB3";
       const asset_id_type sub_asset_1_id = get_asset(sub_asset_1_name).id;
       const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+      const asset_id_type sub_asset_3_id = get_asset(sub_asset_3_name).id;
 
       share_type alice_init_balance_core = get_balance(alice_id, core_id);
       share_type bob_init_balance_core = get_balance(bob_id, core_id);
@@ -5037,6 +5040,176 @@ BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_collection_d) {
          const nft_token_object &token_obj = *token_itr;
          BOOST_CHECK(token_obj.royalty_reservoir == asset(3, core_id));
       }
+
+      ///
+      /// ANOTHER Secondary transfer of an NFT SUB2
+      /// 20 subdivision of NFT #2 will be transferred.
+      /// With an RFP = 5% and a minimum price of 10 CORE per subdivision
+      /// The expected royalty fee should equal 5% * (200 CORE) = 10 CORE
+      /// Therefore, the CORE balances should be affected.
+      ///
+      asset amount4 = graphene::chain::asset(20, sub_asset_2_id);
+      transfer(bob_id, doug_id, amount4);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_2_id), 40 - 5 - 20);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_2_id), 20);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value - 3 - 10);
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(3 + 10, core_id));
+      }
+
+
+      ///
+      /// ANOTHER Secondary transfer of an NFT SUB3
+      /// 40 subdivision of NFT #3 will be transferred.
+      /// With an RFP = 5% and a minimum price of 75 * GRAPHENE_BLOCKCHAIN_PRECISION CORE per subdivision
+      /// The expected royalty fee should equal 5% * (3000 * GRAPHENE_BLOCKCHAIN_PRECISION CORE) = 150 * GRAPHENE_BLOCKCHAIN_PRECISION CORE
+      /// Therefore, the CORE balances should be affected.
+      ///
+      asset amount5 = graphene::chain::asset(40, sub_asset_3_id);
+      transfer(bob_id, doug_id, amount5);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_3_id), 100 - 40);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_3_id), 40);
+
+      BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value - 3 - 10 - (150 * GRAPHENE_BLOCKCHAIN_PRECISION));
+      BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+      // Verify the implementation object
+      {
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(150 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      }
+
+
+      // To permit the most recent account history to embed itself into a block
+      // and thereby become accessible in account history
+      generate_block();
+      graphene::app::history_api hist_api(app);
+
+      ///
+      /// Inspect Alice's account history
+      ///
+      vector <operation_history_object> histories;
+      histories = hist_api.get_account_history("alice");
+      int count = histories.size();
+      // Alices's history in this scenario should include:
+      // 1 Account creation
+      // 1 Transfer of CORE to Alice
+      // 1 Primary Transfer of 40 subdivisions of SERIESA.SUB1 to Alice
+      // 1 Secondary Transfer of 5 subdivisions of SERIESA.SUB1 to Charlie
+      BOOST_CHECK_EQUAL(count, 4);
+
+      operation op;
+
+      // Account histories are sorted in decreasing time order
+      // The first operation should correspond to Alice's transfer to Charlie
+      op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      transfer_operation tx_op = op.get<transfer_operation>();
+      BOOST_CHECK(tx_op.from == alice_id);
+      BOOST_CHECK(tx_op.to == charlie_id);
+      BOOST_CHECK(tx_op.amount == asset(5, sub_asset_1_id));
+
+      // The next operation should correspond to the primary transfer to Alice
+      op = histories[1].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      nft_primary_transfer_operation ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == alice_id);
+      BOOST_CHECK(ptx_op.amount == asset(40, sub_asset_1_id));
+
+
+      ///
+      /// Inspect Bob's account history
+      ///
+      histories = hist_api.get_account_history("bob");
+      count = histories.size();
+      // Bob's history in this scenario should include:
+      // 1 Account creation
+      // 1 Transfer of CORE to Bob
+      // 1 Primary Transfer of 40 subdivisions of SERIESA.SUB2 to Alice
+      // 1 Primary Transfer of 100 subdivisions of SERIESA.SUB3 to Alice
+      // 1 Secondary Transfer of 5 subdivisions of SERIESA.SUB2 to Charlie
+      // 1 virtual royalty payment of Secondary of 3 subdivisions of CORE to the Series reservoir
+      // 1 Secondary Transfer of 20 subdivisions of SERIESA.SUB2 to Doug
+      // 1 virtual royalty payment of Secondary of 10 subdivisions of CORE to the Series reservoir
+      // 1 Secondary Transfer of 40 subdivisions of SERIESA.SUB3 to Doug
+      // 1 virtual royalty payment of Secondary of 150 * GRAPHENE_BLOCKCHAIN_PRECISION subdivisions of CORE to the Series reservoir
+      BOOST_CHECK_EQUAL(count, 10);
+
+      // Account histories are sorted in decreasing time order
+      // The first operation should correspond to Bob's virtual royalty payment
+      op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<nft_royalty_paid_operation>());
+      nft_royalty_paid_operation roy_op = op.get<nft_royalty_paid_operation>();
+      BOOST_CHECK(roy_op.tx_amount == asset(40, sub_asset_3_id));
+      BOOST_CHECK(roy_op.payer == bob_id);
+      BOOST_CHECK(roy_op.royalty == asset(150 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+      // The next operation should correspond to Bob's secondary transfer to Doug
+      op = histories[1].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      tx_op = op.get<transfer_operation>();
+      BOOST_CHECK(tx_op.from == bob_id);
+      BOOST_CHECK(tx_op.to == doug_id);
+      BOOST_CHECK(tx_op.amount == asset(40, sub_asset_3_id));
+
+      // The next operation should correspond to Bob's virtual royalty payment
+      op = histories[2].op;
+      BOOST_REQUIRE(op.is_type<nft_royalty_paid_operation>());
+      roy_op = op.get<nft_royalty_paid_operation>();
+      BOOST_CHECK(roy_op.tx_amount == asset(20, sub_asset_2_id));
+      BOOST_CHECK(roy_op.payer == bob_id);
+      BOOST_CHECK(roy_op.royalty == asset(10, core_id));
+
+      // The next operation should correspond to Bob's secondary transfer to Doug
+      op = histories[3].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      tx_op = op.get<transfer_operation>();
+      BOOST_CHECK(tx_op.from == bob_id);
+      BOOST_CHECK(tx_op.to == doug_id);
+      BOOST_CHECK(tx_op.amount == asset(20, sub_asset_2_id));
+
+      // The next operation should correspond to Bob's virtual royalty payment
+      op = histories[4].op;
+      BOOST_REQUIRE(op.is_type<nft_royalty_paid_operation>());
+      roy_op = op.get<nft_royalty_paid_operation>();
+      BOOST_CHECK(roy_op.tx_amount == asset(5, sub_asset_2_id));
+      BOOST_CHECK(roy_op.payer == bob_id);
+      BOOST_CHECK(roy_op.royalty == asset(3, core_id));
+
+      // The next operation should correspond to Bob's secondary transfer to Charlie
+      op = histories[5].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      tx_op = op.get<transfer_operation>();
+      BOOST_CHECK(tx_op.from == bob_id);
+      BOOST_CHECK(tx_op.to == charlie_id);
+      BOOST_CHECK(tx_op.amount == asset(5, sub_asset_2_id));
+
+      // The next operation should correspond to the primary transfer to Bob of Token #3
+      op = histories[6].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == bob_id);
+      BOOST_CHECK(ptx_op.amount == asset(100, sub_asset_3_id));
+
+      // The next operation should correspond to the primary transfer to Bob of Token #2
+      op = histories[7].op;
+      BOOST_REQUIRE(op.is_type<nft_primary_transfer_operation>());
+      ptx_op = op.get<nft_primary_transfer_operation>();
+      BOOST_CHECK(ptx_op.to == bob_id);
+      BOOST_CHECK(ptx_op.amount == asset(40, sub_asset_2_id));
 
    } FC_LOG_AND_RETHROW()
 }
@@ -5176,6 +5349,238 @@ BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_collection_large) {
          const nft_token_object &token_obj = *token_itr;
          BOOST_CHECK(token_obj.royalty_reservoir == asset(375 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
       }
+
+   } FC_LOG_AND_RETHROW()
+}
+
+BOOST_AUTO_TEST_CASE(nft_history_single_transaction) {
+   try
+   {
+      INVOKE(nft_2ndXfer_royalty_collection_large);
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+
+      // Enable the plug-in
+      BOOST_TEST_MESSAGE("Enabling NFT History plug-in");
+      app.enable_plugin("nft_history");
+      graphene::nft_history::nft_history nft_history(app);
+
+      // Advance the block to receive the latest transactions into the plug-in
+      generate_block();
+
+      // Check the collected royalty
+      const string series_name = "SERIESA";
+      const string sub_asset_3_name = series_name + ".SUB3";
+      const asset_id_type sub_asset_3_id = get_asset(sub_asset_3_name).id;
+      asset royalty = nft_history.get_royalty_reservoir_by_token(sub_asset_3_id, false);
+      BOOST_CHECK(royalty == asset(375 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      royalty = nft_history.get_royalty_reservoir_by_token(sub_asset_3_name, false);
+      BOOST_CHECK(royalty == asset(375 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+   } FC_LOG_AND_RETHROW()
+}
+
+BOOST_AUTO_TEST_CASE(nft_history_multiple_transaction) {
+   try
+   {
+      const fc::time_point_sec INITIAL_TIME = db.head_block_time();
+      INVOKE(nft_2ndXfer_royalty_collection_d);
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+
+      // Enable the plug-in
+      BOOST_TEST_MESSAGE("Enabling NFT History plug-in");
+      app.enable_plugin("nft_history");
+      graphene::nft_history::nft_history nft_history(app);
+
+      // Advance the block to incorporate the latest transactions into a block and thereby into the plug-in
+      const fc::time_point_sec BEFORE_STAGE_1_END_TIME = db.head_block_time();
+      generate_block();
+
+      const fc::time_point_sec STAGE_1_END_TIME = db.head_block_time();
+      const fc::time_point_sec STAGE_2_START_TIME = STAGE_1_END_TIME;
+
+      // Check the collected royalty
+      const string series_name = "SERIESA";
+      const asset_id_type series_id = get_asset(series_name).id;
+
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const asset_id_type sub_asset_2_id = get_asset(sub_asset_2_name).id;
+
+      const string sub_asset_3_name = series_name + ".SUB3";
+      const asset_id_type sub_asset_3_id = get_asset(sub_asset_3_name).id;
+
+      // Check the royalty reservoir by token
+      asset royalty = nft_history.get_royalty_reservoir_by_token(sub_asset_3_id, false);
+      BOOST_CHECK(royalty == asset(150 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      royalty = nft_history.get_royalty_reservoir_by_token(sub_asset_3_name, false);
+      BOOST_CHECK(royalty == asset(150 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      time_point_sec start = INITIAL_TIME;
+      time_point_sec end = time_point_sec::maximum();
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_3_name, start, end);
+      BOOST_CHECK(royalty == asset(150 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+      // Check the royalty reservoir by token
+      royalty = nft_history.get_royalty_reservoir_by_token(sub_asset_2_id, false);
+      BOOST_CHECK(royalty == asset(3 + 10, core_id));
+      royalty = nft_history.get_royalty_reservoir_by_token(sub_asset_2_name, false);
+      BOOST_CHECK(royalty == asset(3 + 10, core_id));
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_2_name, start, end);
+      BOOST_CHECK(royalty == asset(3 + 10, core_id));
+
+      // Check the royalty reservoir by series
+      vector<asset> royalties = nft_history.get_royalty_reservoir_by_series(series_name, false);
+      BOOST_CHECK_EQUAL(royalties.size(), 1); // Only a single asset type
+      BOOST_CHECK(royalties[0] == asset(3 + 10 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION), core_id));
+      royalties = nft_history.get_royalty_reservoir_by_series(series_id, false);
+      BOOST_CHECK_EQUAL(royalties.size(), 1); // Only a single asset type
+      BOOST_CHECK(royalties[0] == asset(3 + 10 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION), core_id));
+
+
+      ///
+      /// Stage 2 of transfer activity to trigger royalty payments
+      ///
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      GET_ACTOR(doug);
+
+      // Advance the blockchain
+      generate_blocks(5);
+
+      /// Perform additional transfers that should generate royalties
+      ///
+      /// ANOTHER Secondary transfer of an NFT SUB2
+      /// 10 subdivision of NFT #2 will be transferred.
+      /// With an RFP = 5% and a minimum price of 10 CORE per subdivision
+      /// The expected royalty fee should equal 5% * (100 CORE) = 5 CORE
+      /// Therefore, the CORE balances should be affected.
+      ///
+      asset amount1 = graphene::chain::asset(10, sub_asset_2_id);
+      transfer(bob_id, doug_id, amount1);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_2_id), 40 - 5 - 20 - 10);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_2_id), 20 + 10);
+
+      // Verify the implementation object
+      {
+         const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(3 + 10 + 5, core_id));
+      }
+
+      ///
+      /// ANOTHER Secondary transfer of an NFT SUB3
+      /// 20 subdivision of NFT #3 will be transferred.
+      /// With an RFP = 5% and a minimum price of 75 * GRAPHENE_BLOCKCHAIN_PRECISION CORE per subdivision
+      /// The expected royalty fee should equal 5% * (1500 * GRAPHENE_BLOCKCHAIN_PRECISION CORE) = 75 * GRAPHENE_BLOCKCHAIN_PRECISION CORE
+      /// Therefore, the CORE balances should be affected.
+      ///
+      asset amount2 = graphene::chain::asset(20, sub_asset_3_id);
+      transfer(bob_id, doug_id, amount2);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_3_id), 100 - 40 - 20);
+      BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_3_id), 40 + 20);
+
+      // Verify the implementation object
+      {
+         const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset((150 + 75) * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      }
+
+      // Advance the block to incorporate the latest transactions into a block and thereby the plug-in
+      generate_block();
+
+      // Advance to conclude Stage 2
+      generate_block();
+      const fc::time_point_sec STAGE_2_END_TIME = db.head_block_time();
+
+      ///
+      /// Check royalty collected across different timespans
+      ///
+
+      /// All time
+      start = INITIAL_TIME;
+      end = time_point_sec::maximum();
+
+      // Check the cumulative royalty by token
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_3_name, start, end);
+      BOOST_CHECK(royalty == asset((150 + 75) * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_2_name, start, end);
+      BOOST_CHECK(royalty == asset(3 + 10 + 5, core_id));
+
+      // Check the cumulative royalty by series
+      royalties = nft_history.get_royalties_by_series(series_name, start, end);
+      BOOST_CHECK_EQUAL(royalties.size(), 1); // Only a single asset type
+      BOOST_CHECK(royalties[0] == asset(3 + 10 + 5 + ((150 + 75) * GRAPHENE_BLOCKCHAIN_PRECISION), core_id));
+
+      /// From blockchain start time to just before Stage 1 activities are recorded in a block
+      start = INITIAL_TIME;
+      end = BEFORE_STAGE_1_END_TIME;
+
+      // Check the cumulative royalty by token
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_3_name, start, end);
+      BOOST_CHECK(royalty == asset(0 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_2_name, start, end);
+      BOOST_CHECK(royalty == asset(0, core_id));
+
+      // Check the cumulative royalty by series
+      royalties = nft_history.get_royalties_by_series(series_name, start, end);
+      BOOST_CHECK_EQUAL(royalties.size(), 0); // No royalties
+
+      /// From blockchain start time to Stage 1 end-time
+      start = INITIAL_TIME;
+      end = STAGE_1_END_TIME;
+
+      // Check the cumulative royalty by token
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_3_name, start, end);
+      BOOST_CHECK(royalty == asset((150) * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_2_name, start, end);
+      BOOST_CHECK(royalty == asset(3 + 10, core_id));
+
+      // Check the cumulative royalty by series
+      royalties = nft_history.get_royalties_by_series(series_name, start, end);
+      BOOST_CHECK_EQUAL(royalties.size(), 1); // Only a single asset type
+      BOOST_CHECK(royalties[0] == asset(3 + 10 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION), core_id));
+
+      /// From Stage 2 start to Stage 2 end
+      start = STAGE_2_START_TIME;
+      end = STAGE_2_END_TIME;
+
+      // Check the cumulative royalty by token
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_3_name, start, end);
+      BOOST_CHECK(royalty == asset(75 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_2_name, start, end);
+      BOOST_CHECK(royalty == asset(5, core_id));
+
+      // Check the cumulative royalty by series
+      royalties = nft_history.get_royalties_by_series(series_name, start, end);
+      BOOST_CHECK_EQUAL(royalties.size(), 1); // Only a single asset type
+      BOOST_CHECK(royalties[0] == asset(5 + (75 * GRAPHENE_BLOCKCHAIN_PRECISION), core_id));
+
+      /// From after Stage 2 to the end times
+      start = STAGE_2_END_TIME;
+      end = time_point_sec::maximum();
+
+      // Check the cumulative royalty by token
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_3_name, start, end);
+      BOOST_CHECK(royalty == asset(0 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+
+      royalty = nft_history.get_royalties_collected_by_token(sub_asset_2_name, start, end);
+      BOOST_CHECK(royalty == asset(0, core_id));
+
+      // Check the cumulative royalty by series
+      royalties = nft_history.get_royalties_by_series(series_name, start, end);
+      BOOST_CHECK_EQUAL(royalties.size(), 0); // No royalties
 
    } FC_LOG_AND_RETHROW()
 }

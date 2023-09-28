@@ -5,7 +5,7 @@ add_library( database_fixture
              ${COMMON_SOURCES}
              ${COMMON_HEADERS}
            )
-target_link_libraries( database_fixture PUBLIC graphene_app graphene_es_objects graphene_egenesis_none )
+target_link_libraries( database_fixture PUBLIC graphene_app graphene_es_objects graphene_egenesis_none graphene_nft_history)
 target_include_directories( database_fixture
                             PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/common" )
 
@@ -26,7 +26,7 @@ endif(MSVC)
 
 file(GLOB PERFORMANCE_TESTS "performance/*.cpp")
 add_executable( performance_test ${PERFORMANCE_TESTS} )
-target_link_libraries( performance_test database_fixture ${PLATFORM_SPECIFIC_LIBS} )
+target_link_libraries( performance_test database_fixture graphene_nft_history ${PLATFORM_SPECIFIC_LIBS} )
 
 file(GLOB APP_SOURCES "app/*.cpp")
 add_executable( app_test ${APP_SOURCES} )
@@ -46,6 +46,6 @@ endif(MSVC)
 
 file(GLOB ES_SOURCES "elasticsearch/*.cpp")
 add_executable( es_test ${ES_SOURCES} )
-target_link_libraries( es_test database_fixture ${PLATFORM_SPECIFIC_LIBS} )
+target_link_libraries( es_test database_fixture graphene_nft_history ${PLATFORM_SPECIFIC_LIBS} )
                        
 add_subdirectory( generate_empty_blocks )
