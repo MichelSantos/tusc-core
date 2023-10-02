@@ -121,7 +121,8 @@ namespace graphene { namespace protocol {
             /* 66 */ nft_primary_transfer_operation,
             /* 67 */ nft_return_operation,
             /* 68 */ nft_burn_operation,
-            /* 69 */ nft_redeemed_operation          // VIRTUAL
+            /* 69 */ nft_redeemed_operation,         // VIRTUAL
+            /* 70 */ nft_royalty_paid_operation      // VIRTUAL
          > operation;
 
    /// @} // operations group

@@ -118,3 +118,5 @@ GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_redeemed_oper
 
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation::fee_parameters_type )
 GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation )
+
+GRAPHENE_IMPLEMENT_EXTERNAL_SERIALIZATION( graphene::protocol::nft_royalty_paid_operation )

@@ -59,7 +59,8 @@ struct hardfork_visitor {
                                nft_primary_transfer_operation>;
    using nft_m2_ops = TL::list<nft_return_operation,
                                nft_burn_operation>;
-   using nft_m3_ops = TL::list<nft_redeemed_operation>;
+   using nft_m3_ops = TL::list<nft_redeemed_operation,
+                               nft_royalty_paid_operation>;
    fc::time_point_sec now;
 
    hardfork_visitor(fc::time_point_sec now) : now(now) {}

@@ -229,6 +229,30 @@ namespace graphene {
          account_id_type fee_payer() const { return issuer; }
       };
 
+      struct nft_royalty_paid_operation : public base_operation {
+         struct fee_parameters_type {};
+
+         nft_royalty_paid_operation() {}
+         nft_royalty_paid_operation( asset original_nft_amount, asset royalty_paid, account_id_type payer )
+            : tx_amount(original_nft_amount), royalty(royalty_paid), payer(payer) {}
+
+         account_id_type fee_payer()const { return payer; }
+         void validate()const { FC_ASSERT( !"virtual operation" ); }
+
+         share_type calculate_fee(const fee_parameters_type& k)const { return 0; }
+
+         /// Original amount of the NFT transaction
+         asset tx_amount;
+
+         /// Royalty paid
+         asset royalty;
+
+         /// Payer of the royalty
+         account_id_type payer;
+
+         asset fee;
+      };
+
    }
 }
 
@@ -269,6 +293,10 @@ FC_REFLECT( graphene::protocol::nft_burn_operation,
 (fee)(issuer)(amount)(extensions)
 )
 
+FC_REFLECT( graphene::protocol::nft_royalty_paid_operation::fee_parameters_type, ) // VIRTUAL
+FC_REFLECT( graphene::protocol::nft_royalty_paid_operation,
+(fee)(tx_amount)(royalty)(payer))
+
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation )
 
@@ -285,3 +313,5 @@ GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_redeemed_operat
 
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation )
+
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_royalty_paid_operation )
