@@ -170,6 +170,10 @@ void_result transfer_evaluator::do_apply( const transfer_operation& o )
       db().modify(obj, [&royalty_amount](nft_token_object &data) {
          data.royalty_reservoir.amount += royalty_amount;
       });
+
+      // Virtual operation for account history
+      const nft_royalty_paid_operation &vop = nft_royalty_paid_operation(o.amount, _nft_royalty, o.from);
+      db().push_applied_operation(vop);
    }
 
    return void_result();
