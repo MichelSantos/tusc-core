@@ -50,6 +50,7 @@ template class fc::api<graphene::app::asset_api>;
 template class fc::api<graphene::app::orders_api>;
 template class fc::api<graphene::app::custom_operations_api>;
 template class fc::api<graphene::debug_witness::debug_api>;
+template class fc::api<graphene::app::nft_history_api>;
 template class fc::api<graphene::app::login_api>;
 
 
@@ -130,6 +131,12 @@ namespace graphene { namespace app {
           // can only enable this API if the plugin was loaded
           if( _app.get_plugin( "debug_witness" ) )
              _debug_api = std::make_shared< graphene::debug_witness::debug_api >( std::ref(_app) );
+       }
+       else if( api_name == "nft_history_api" )
+       {
+          // can only enable this API if the plugin was loaded
+          if( _app.get_plugin( "nft_history" ) )
+             _nft_history_api = std::make_shared< nft_history_api>( std::ref(_app) );
        }
        return;
     }
@@ -314,6 +321,12 @@ namespace graphene { namespace app {
     {
        FC_ASSERT(_custom_operations_api);
        return *_custom_operations_api;
+    }
+
+    fc::api<nft_history_api> login_api::nft_history() const
+    {
+       FC_ASSERT(_nft_history_api);
+       return *_nft_history_api;
     }
 
     vector<order_history_object> history_api::get_fill_order_history( std::string asset_a, std::string asset_b,
@@ -872,4 +885,46 @@ namespace graphene { namespace app {
       return results;
    }
 
-} } // graphene::app
+
+      // NFT History API
+      asset nft_history_api::get_royalty_reservoir_by_token(const std::string asset_name_or_id) const {
+         auto plugin = _app.get_plugin<graphene::nft_history::nft_history>("nft_history");
+         FC_ASSERT( plugin );
+
+         const asset_id_type& aid = database_api.get_asset_id_from_string(asset_name_or_id);
+
+         return plugin->get_royalty_reservoir_by_token(aid, false);
+      }
+
+      vector<asset> nft_history_api::get_royalty_reservoir_by_series(const std::string series_asset_name_or_id) const {
+         auto plugin = _app.get_plugin<graphene::nft_history::nft_history>("nft_history");
+         FC_ASSERT( plugin );
+
+         const asset_id_type& aid = database_api.get_asset_id_from_string(series_asset_name_or_id);
+
+         return plugin->get_royalty_reservoir_by_series(aid, false);
+      }
+
+      asset nft_history_api::get_royalties_collected_by_token(const std::string asset_name_or_id,
+                                                              const fc::time_point_sec start,
+                                                              const fc::time_point_sec end) const {
+         auto plugin = _app.get_plugin<graphene::nft_history::nft_history>("nft_history");
+         FC_ASSERT( plugin );
+
+         const asset_id_type& aid = database_api.get_asset_id_from_string(asset_name_or_id);
+
+         return plugin->get_royalties_collected_by_token(aid, start, end);
+      }
+
+      vector <asset> nft_history_api::get_royalties_by_series(const std::string asset_name_or_id,
+                                                              const fc::time_point_sec start,
+                                                              const fc::time_point_sec end) const {
+         auto plugin = _app.get_plugin<graphene::nft_history::nft_history>("nft_history");
+         FC_ASSERT( plugin );
+
+         const asset_id_type& aid = database_api.get_asset_id_from_string(asset_name_or_id);
+
+         return plugin->get_royalties_by_series(aid, start, end);
+      }
+
+   } } // graphene::app

@@ -34,6 +34,8 @@
 
 #include <graphene/elasticsearch/elasticsearch_plugin.hpp>
 
+#include <graphene/nft_history/nft_history.hpp>
+
 #include <graphene/debug_witness/debug_api.hpp>
 
 #include <graphene/net/node.hpp>
@@ -604,6 +606,61 @@ namespace graphene { namespace app {
          application& _app;
          graphene::app::database_api database_api;
    };
+
+      /**
+       * @brief The custom_operations_api class exposes access to standard custom objects parsed by the
+       * custom_operations_plugin.
+       */
+      class nft_history_api {
+      public:
+         nft_history_api(application &app) : _app(app), database_api(*app.chain_database(),
+                                                                     &(app.get_options())) {}
+
+         /**
+          * @brief Get the royalty reservoir for a particular token
+          *
+          * @param asset_name_or_id NFT name or asset ID
+          *
+          * @return Royalty currently in the reservoir
+          */
+         asset get_royalty_reservoir_by_token(const std::string asset_name_or_id) const;
+
+         /**
+          * @brief Get the royalty reservoirs for all NFTs in a Series aggregated by asset type
+          *
+          * @param series_asset_name_or_id NFT Series name or asset ID
+          *
+          * @return Royalties currently in the reservoirs
+          */
+         vector<asset> get_royalty_reservoir_by_series(const std::string series_asset_name_or_id) const;
+
+         /**
+          * @brief Get the royalties collected for an NFT token across a timespan
+          * @param asset_name_or_id NFT name or asset ID
+          * @param start Start time (inclusive)
+          * @param end End time (exclusive)
+          * @return Total royalty paid
+          */
+         asset get_royalties_collected_by_token(const std::string asset_name_or_id,
+                                                const fc::time_point_sec start,
+                                                const fc::time_point_sec end) const;
+
+         /**
+          * @brief Get the royalties collected for an NFT token across a timespan
+          * @param series_name_or_aseet_id NFT Series name or asset ID
+          * @param start Start time (inclusive)
+          * @param end End time (exclusive)
+          * @return Cumulative distributed royalties grouped by asset ID of royalty
+          */
+         vector <asset> get_royalties_by_series(const std::string series_name_or_aseet_id,
+                                                const fc::time_point_sec start,
+                                                const fc::time_point_sec end) const;
+
+      private:
+         application &_app;
+         graphene::app::database_api database_api;
+      };
+
 } } // graphene::app
 
 extern template class fc::api<graphene::app::block_api>;
@@ -615,6 +672,7 @@ extern template class fc::api<graphene::app::asset_api>;
 extern template class fc::api<graphene::app::orders_api>;
 extern template class fc::api<graphene::debug_witness::debug_api>;
 extern template class fc::api<graphene::app::custom_operations_api>;
+extern template class fc::api<graphene::app::nft_history_api>;
 
 namespace graphene { namespace app {
    /**
@@ -658,6 +716,8 @@ namespace graphene { namespace app {
          fc::api<graphene::debug_witness::debug_api> debug()const;
          /// @brief Retrieve the custom operations API
          fc::api<custom_operations_api> custom_operations()const;
+         /// @brief Retrieve the NFT History API
+         fc::api<nft_history_api> nft_history()const;
 
          /// @brief Called to enable an API, not reflected.
          void enable_api( const string& api_name );
@@ -674,6 +734,7 @@ namespace graphene { namespace app {
          optional< fc::api<orders_api> > _orders_api;
          optional< fc::api<graphene::debug_witness::debug_api> > _debug_api;
          optional< fc::api<custom_operations_api> > _custom_operations_api;
+         optional< fc::api<nft_history_api> > _nft_history_api;
    };
 
 }}  // graphene::app
@@ -757,4 +818,11 @@ FC_API(graphene::app::login_api,
        (orders)
        (debug)
        (custom_operations)
+       (nft_history)
      )
+FC_API(graphene::app::nft_history_api,
+   (get_royalty_reservoir_by_token)
+   (get_royalty_reservoir_by_series)
+   (get_royalties_collected_by_token)
+   (get_royalties_by_series)
+)
