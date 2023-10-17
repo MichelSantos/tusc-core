@@ -37,7 +37,7 @@ namespace graphene {
 
          object_id_type do_apply(const nft_series_create_operation &o);
 
-         const asset_object* asset_to_associate = nullptr;
+         const asset_object* _asset_to_associate = nullptr;
       };
 
       class nft_mint_evaluator : public evaluator<nft_mint_evaluator> {

@@ -55,7 +55,7 @@ namespace graphene {
 
             // Verify the existence of the associated asset
             const asset_object &a = op.asset_id(d);
-            asset_to_associate = &a;
+            _asset_to_associate = &a;
 
             // Verify that the issuer of the operation is also the issuer of the asset
             FC_ASSERT(op.issuer == a.issuer,
@@ -98,6 +98,7 @@ namespace graphene {
       object_id_type nft_series_create_evaluator::do_apply(const nft_series_create_operation &op) {
          try {
             graphene::chain::database &d = db();
+            const string& asset_name = _asset_to_associate->symbol;
 
             // TODO [Milestone 4]: Create the associated royalty series asset
             // TODO [Milestone 4]: Distribute the associated royalty series to the Issuer
