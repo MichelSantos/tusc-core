@@ -317,6 +317,20 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_invalid_a ) {
       const asset_object &asset_b = create_user_issued_asset(series_b_name, alice_id(db), 0);
       const asset_id_type asset_b_id = asset_b.id;
 
+      // Alice creates an asset with name so long that it will prevent sub-assets
+      // GRAPHENE_MAX_ASSET_SYMBOL_LENGTH is set to 16.
+      // Therefore, the maximum name length for an NFT SERIES should be 14.
+      const string series_name_too_long = "SERIES789012345";
+      const asset_object &asset_too_long = create_user_issued_asset(series_name_too_long, alice_id(db), 0);
+      const asset_id_type asset_too_long_id = asset_too_long.id;
+
+      // Alice creates an asset with name that is barely short enough that it will permit sub-assets
+      // GRAPHENE_MAX_ASSET_SYMBOL_LENGTH is set to 16.
+      // Therefore, the maximum name length for an NFT SERIES should be 14.
+      const string series_name_short_enough = "SERIES78901234";
+      const asset_object &asset_short_enough = create_user_issued_asset(series_name_short_enough, alice_id(db), 0);
+      const asset_id_type asset_short_enough_id = asset_short_enough.id;
+
       // Reject series creation for a sub-asset
       // Alice attempts to create the series from her sub-asset
       create_op = graphene::chain::nft_series_create_operation();
@@ -348,6 +362,34 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_invalid_a ) {
       create_op = graphene::chain::nft_series_create_operation();
       create_op.issuer = alice_id;
       create_op.asset_id = asset_b_id;
+      create_op.beneficiary = alice_id;
+      create_op.manager = alice_id;
+      create_op.royalty_fee_centipercent = 0;
+      trx.clear();
+      trx.operations.push_back(create_op);
+      sign(trx, alice_private_key);
+      PUSH_TX(db, trx);
+
+      // Reject series creation with a name that is so long that it will
+      // prevent the creation of sub-assets
+      // because the Graphene-conventional sub-asset name will be too long
+      create_op = graphene::chain::nft_series_create_operation();
+      create_op.issuer = alice_id;
+      create_op.asset_id = asset_too_long_id;
+      create_op.beneficiary = alice_id;
+      create_op.manager = alice_id;
+      create_op.royalty_fee_centipercent = 0;
+      trx.clear();
+      trx.operations.push_back(create_op);
+      sign(trx, alice_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "name is too long");
+
+      // Confirm valid series creation with a name that is barely short enough to
+      // permit the creation of sub-assets
+      // by Graphene-conventional sub-asset names
+      create_op = graphene::chain::nft_series_create_operation();
+      create_op.issuer = alice_id;
+      create_op.asset_id = asset_short_enough_id;
       create_op.beneficiary = alice_id;
       create_op.manager = alice_id;
       create_op.royalty_fee_centipercent = 0;

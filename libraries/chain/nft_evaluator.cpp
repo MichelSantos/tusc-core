@@ -69,6 +69,20 @@ namespace graphene {
                       ("asset_name", a.symbol)
             );
 
+            // The minimum sub-asset addendum, by Graphene convention, involves a period "." and one character.
+            // Therefore, the minimum addition to the name of any potential sub-asset is two
+            const uint8_t MIN_SUB_ASSET_NAME_ADDENDUM = 2;
+            FC_ASSERT(a.symbol.size() <= GRAPHENE_MAX_ASSET_SYMBOL_LENGTH - MIN_SUB_ASSET_NAME_ADDENDUM,
+               "Series name is too long to permit the creation of sub-assets");
+
+            // Verify that the asset is not already associated with a series
+            const auto &series_idx = d.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+            auto series_itr = series_idx.find(op.asset_id);
+            FC_ASSERT(series_itr == series_idx.end(),
+                      "The asset (${asset_id}) is already a series with another series (${series_name})",
+                      ("asset_id", op.asset_id)("series_name", series_itr->series_name)
+            );
+
             // Verify the asset does not have any sub-assets based on name
             // Example: Sub-assets of a series name "SERIESA" would have sub-assets like "SERIESA.SUB1", "SERIESA.SUB2"
             const auto& asset_idx = d.get_index_type<asset_index>().indices().get<by_symbol>();
@@ -82,14 +96,6 @@ namespace graphene {
                   FC_THROW("A series may not be associated with an asset that already contains sub-assets");
                }
             }
-
-            // Verify that the asset is not already associated with a series
-            const auto &series_idx = d.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
-            auto series_itr = series_idx.find(op.asset_id);
-            FC_ASSERT(series_itr == series_idx.end(),
-                      "The asset (${asset_id}) is already a series with another series (${series_name})",
-                      ("asset_id", op.asset_id)("series_name", series_itr->series_name)
-            );
 
             return void_result();
          } FC_CAPTURE_AND_RETHROW((op))
