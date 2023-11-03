@@ -1,0 +1,5 @@
+// NFT Milestone 4 (M4) hardfork check
+#ifndef HARDFORK_NFT_M4_TIME
+#define HARDFORK_NFT_M4_TIME (fc::time_point_sec( 1697457600 )) // Monday, October 16, 2023 12:00:00 UTC
+#define HARDFORK_NFT_M4_PASSED(now) (now >= HARDFORK_NFT_M4_TIME)
+#endif
