@@ -89,5 +89,56 @@ namespace graphene {
          const asset_dynamic_data_object* _token_dyn_data = nullptr;
       };
 
-   } // namespace graphene
+      class nft_pending_royalty_claim_transfer {
+      public:
+         nft_pending_royalty_claim_transfer() {}
+
+         nft_pending_royalty_claim_transfer(const nft_series_object* ptr_nft_series,
+                                            const account_id_type &from_id, const share_type &from_new_balance_amount,
+                                            const account_id_type &to_id, const share_type &to_new_balance_amount) :
+            ptr_series_obj(ptr_nft_series),
+            from(from_id), from_new_balance(from_new_balance_amount),
+            to(to_id), to_new_balance(to_new_balance_amount) {
+         }
+
+         const nft_series_object* ptr_series_obj = nullptr;
+
+         account_id_type from;
+         share_type from_new_balance;
+
+         account_id_type to;
+         share_type to_new_balance;
+      };
+
+      /**
+       * Determine whether an asset is an NFT Royalty Claim
+       * @param db  Database
+       * @param asset_id    Asset ID
+       * @return True or false
+       */
+      bool is_nft_royalty_claim(const database &db, const asset_id_type &asset_id);
+
+      /**
+       * Evaluate a royalty claim transfer
+       * @param db Database
+       * @param from From account ID
+       * @param amount Amount
+       * @param to To account ID
+       * @return Pending royalty transfer
+       */
+      const nft_pending_royalty_claim_transfer evaluate_royalty_claim_transfer(const database &db,
+                                                                               const account_id_type &from,
+                                                                               const asset &amount,
+                                                                               const account_id_type &to);
+
+      /**
+       * Apply a previously calculated pending royalty transfer
+       * @param db Database
+       * @param series_obj NFT Series object
+       * @param rtx Pending royalty transfer
+       */
+      void apply_royalty_claim_transfer(database &db,
+                                  const nft_pending_royalty_claim_transfer &rtx);
+
+   } // namespace chain
 } // namespace graphene

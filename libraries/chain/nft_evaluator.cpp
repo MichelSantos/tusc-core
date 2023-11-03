@@ -627,5 +627,72 @@ namespace graphene {
          } FC_CAPTURE_AND_RETHROW((op))
       }
 
+      bool is_nft_royalty_claim(const database &db, const asset_id_type& asset_id) {
+         const auto& series_royalty_idx = db.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+         auto series_itr = series_royalty_idx.find(asset_id);
+         const bool& is_nft_royalty_claim = (series_itr != series_royalty_idx.end());
+
+         return is_nft_royalty_claim;
+      }
+
+      const nft_pending_royalty_claim_transfer evaluate_royalty_claim_transfer(const database &db,
+                                                                               const account_id_type &from,
+                                                                               const asset &amount,
+                                                                               const account_id_type &to) {
+         // Validate the input
+         FC_ASSERT(0 < amount.amount);
+         FC_ASSERT(amount.amount <= NFT_ROYALTY_CLAIMS_COUNT);
+
+         // Find the NFT Series
+         const auto& series_royalty_idx = db.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+         auto series_itr = series_royalty_idx.find(amount.asset_id);
+         const bool& is_nft_royalty_claim = (series_itr != series_royalty_idx.end());
+         FC_ASSERT(is_nft_royalty_claim);
+
+         // From
+         const nft_series_object &series_obj = *series_itr;
+         auto itr = series_obj.royalty_claims.find(from);
+         FC_ASSERT(itr != series_obj.royalty_claims.end());
+         const share_type &from_old_balance = itr->second;
+         const share_type &from_new_balance = from_old_balance - amount.amount;
+         FC_ASSERT(0 <= from_new_balance);
+         FC_ASSERT(from_new_balance <= NFT_ROYALTY_CLAIMS_COUNT);
+
+         // To
+         share_type to_old_balance = 0;
+         itr = series_obj.royalty_claims.find(to);
+         if (itr != series_obj.royalty_claims.end()) {
+            to_old_balance = itr->second;
+         }
+         const share_type &to_new_balance = to_old_balance + amount.amount;
+         FC_ASSERT(0 <= to_new_balance);
+         FC_ASSERT(to_new_balance <= NFT_ROYALTY_CLAIMS_COUNT);
+
+         return nft_pending_royalty_claim_transfer(&series_obj, from, from_new_balance, to, to_new_balance);
+      }
+
+      void apply_royalty_claim_transfer(database &db,
+                                        const nft_pending_royalty_claim_transfer &rtx) {
+         const nft_series_object &series_obj = *rtx.ptr_series_obj;
+         db.modify(series_obj, [&rtx](nft_series_object &obj) {
+            // From
+            if (rtx.from_new_balance > 0) {
+               obj.royalty_claims[rtx.from] = rtx.from_new_balance;
+
+            } else {
+               // Equal to 0. Erase the entry.
+               auto itr = obj.royalty_claims.find(rtx.from);
+               if (itr != obj.royalty_claims.end()) {
+                  obj.royalty_claims.erase(itr);
+               } else {
+                  // Should not ever be the case because of the prior check in evaluate_royalty_claim_transfer()
+               }
+            }
+
+            // To
+            obj.royalty_claims[rtx.to] = rtx.to_new_balance;
+         });
+      }
+
    } // namespace chain
 } // namespace graphene
