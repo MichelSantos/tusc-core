@@ -29,6 +29,7 @@
 #include <graphene/chain/hardfork.hpp>
 #include <graphene/chain/market_object.hpp>
 #include <graphene/chain/is_authorized_asset.hpp>
+#include <graphene/chain/nft_evaluator.hpp>
 
 #include <fc/uint128.hpp>
 
@@ -663,8 +664,8 @@ int database::match( const limit_order_object& usd, const limit_order_object& co
                  core_pays == core.amount_for_sale() );
 
    int result = 0;
-   result |= fill_limit_order( usd, usd_pays, usd_receives, cull_taker, match_price, false ); // the first param is taker
-   result |= fill_limit_order( core, core_pays, core_receives, true, match_price, true ) << 1; // the second param is maker
+   result |= fill_limit_order( usd, usd_pays, usd_receives, cull_taker, match_price, false, core.seller ); // the first param is taker
+   result |= fill_limit_order( core, core_pays, core_receives, true, match_price, true, usd.seller ) << 1; // the second param is maker
    FC_ASSERT( result != 0 );
    return result;
 }
@@ -717,7 +718,7 @@ int database::match( const limit_order_object& bid, const call_order_object& ask
    const asset margin_call_fee = call_pays - order_receives;
 
    int result = 0;
-   result |= fill_limit_order( bid, order_pays, order_receives, cull_taker, match_price, false ); // taker
+   result |= fill_limit_order( bid, order_pays, order_receives, cull_taker, match_price, false, ask.borrower ); // taker
    result |= fill_call_order( ask, call_pays, call_receives, match_price, true, margin_call_fee ) << 1; // maker
    // result can be 0 when call order has target_collateral_ratio option set.
 
@@ -827,7 +828,7 @@ asset database::match( const call_order_object& call,
 } FC_CAPTURE_AND_RETHROW( (call)(settle)(match_price)(max_settlement) ) }
 
 bool database::fill_limit_order( const limit_order_object& order, const asset& pays, const asset& receives, bool cull_if_small,
-                           const price& fill_price, const bool is_maker)
+                           const price& fill_price, const bool is_maker, const account_id_type &counterparty )
 { try {
    cull_if_small |= (head_block_time() < HARDFORK_555_TIME);
 
@@ -842,6 +843,12 @@ bool database::fill_limit_order( const limit_order_object& order, const asset& p
 
    assert( pays.asset_id != receives.asset_id );
    push_applied_operation( fill_order_operation( order.id, order.seller, pays, receives, issuer_fees, fill_price, is_maker ) );
+
+   // Track changes of NFT royalty claim ownership
+   if (is_nft_royalty_claim(*this, receives.asset_id)) {
+      nft_pending_royalty_claim_transfer rtx = evaluate_royalty_claim_transfer(*this, counterparty, receives - issuer_fees, order.seller);
+      apply_royalty_claim_transfer(*this, rtx);
+   }
 
    // BSIP85: Maker order creation fee discount, https://github.com/bitshares/bsips/blob/master/bsip-0085.md
    //   if the order creation fee was paid in TUSC,
@@ -1318,7 +1325,7 @@ bool database::check_call_orders( const asset_object& mia, bool enable_black_swa
        auto next_limit_itr = std::next( limit_itr );
        // when for_new_limit_order is true, the limit order is taker, otherwise the limit order is maker
        bool really_filled = fill_limit_order( limit_order, limit_pays, limit_receives, true,
-                                              match_price, !for_new_limit_order );
+                                              match_price, !for_new_limit_order, call_order.borrower );
        if( really_filled || ( filled_limit && before_core_hardfork_453 ) )
           limit_itr = next_limit_itr;
 

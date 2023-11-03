@@ -459,7 +459,7 @@ namespace graphene { namespace chain {
           * @return true if the order was completely filled and thus freed.
           */
          bool fill_limit_order( const limit_order_object& order, const asset& pays, const asset& receives,
-               bool cull_if_small, const price& fill_price, const bool is_maker );
+               bool cull_if_small, const price& fill_price, const bool is_maker, const account_id_type &counterparty );
          /***
           * @brief attempt to fill a call order
           * @param order the order
