@@ -75,6 +75,38 @@ namespace graphene {
             FC_ASSERT(a.symbol.size() <= GRAPHENE_MAX_ASSET_SYMBOL_LENGTH - MIN_SUB_ASSET_NAME_ADDENDUM,
                "Series name is too long to permit the creation of sub-assets");
 
+            // Verify that the asset has a supply of NFT_ROYALTY_CLAIMS_COUNT subdivisions
+            const asset_dynamic_data_object &a_addo = a.dynamic_asset_data_id(d);
+            const share_type required_balance = NFT_ROYALTY_CLAIMS_COUNT;
+            FC_ASSERT(a_addo.current_supply == required_balance,
+                      "The asset should have a supply of ${required} subdivisions",
+                      ("required", required_balance)
+            );
+            FC_ASSERT(a_addo.current_max_supply == required_balance,
+                      "The asset should have a maximum supply of ${required} subdivisions",
+                      ("required", required_balance)
+            );
+            FC_ASSERT(a.precision == 0,
+                      "The asset should have a precision of zero rather than ${actual_precision}",
+                      ("actual_precision", a.precision)
+            );
+
+            // Verify that the supply of NFT_ROYALTY_CLAIMS_COUNT subdivisions is held by the prospective creator
+            const asset& creator_balance = d.get_balance(a.issuer, a.id);
+            FC_ASSERT(creator_balance.amount == required_balance,
+                      "The supply of the asset should be equal ${required} subdivisions and be entirely held by the asset issuer.  The asset issuer's balance equals ${available} subdivisions.",
+                      ("required", required_balance)
+                      ("available", creator_balance.amount)
+            );
+
+            // Verify that the asset's maximum supply is prohibited from increasing
+            FC_ASSERT((a.options.issuer_permissions & lock_max_supply), "The asset should NOT be configured to update the max supply");
+            FC_ASSERT((a.options.flags & lock_max_supply), "The asset should NOT be configured to update the max supply");
+
+            // Verify that the asset CANNOT charge a market fee
+            FC_ASSERT(!(a.options.issuer_permissions & charge_market_fee), "The asset should NOT be configured to charge a market fee");
+            FC_ASSERT(!(a.options.flags & charge_market_fee), "The asset should NOT be configured to charge a market fee");
+
             // Verify that the asset is not already associated with a series
             const auto &series_idx = d.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
             auto series_itr = series_idx.find(op.asset_id);
@@ -106,12 +138,11 @@ namespace graphene {
             graphene::chain::database &d = db();
             const string& asset_name = _asset_to_associate->symbol;
 
-            // TODO [Milestone 4]: Create the associated royalty series asset
-            // TODO [Milestone 4]: Distribute the associated royalty series to the Issuer
-
-            const string& asset_name = asset_to_associate->symbol;
+            // Create the NFT Series
+            // Mimic asset_create_evaluator::do_apply()
+            const account_id_type series_creator = op.issuer; // Previously verified to be NFT Series Issuer in do_evaluate()
             const nft_series_object &obj = d.create<nft_series_object>(
-               [&d, &op, &asset_name](nft_series_object &_obj) {
+               [&d, &op, &asset_name, &series_creator](nft_series_object &_obj) {
                   _obj.asset_id = op.asset_id;
                   _obj.series_name = asset_name;
                   _obj.royalty_fee_centipercent = op.royalty_fee_centipercent;
@@ -122,6 +153,10 @@ namespace graphene {
                      // Default to the issuer if a manager is not specified
                      _obj.manager = op.issuer;
                   }
+
+                  // Track the initial royalty claimants
+                  const share_type &initial_max_supply = NFT_ROYALTY_CLAIMS_COUNT;
+                  _obj.royalty_claims[series_creator] = initial_max_supply;
                });
             return obj.id;
 
