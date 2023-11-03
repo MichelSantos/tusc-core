@@ -5704,6 +5704,200 @@ BOOST_AUTO_TEST_CASE(nft_history_multiple_transaction) {
    } FC_LOG_AND_RETHROW()
 }
 
+/**
+ * Test changing the ownership over royalty claims
+ * by secondary transfers of the royalty claims
+ */
+BOOST_AUTO_TEST_CASE(nft_transfer_royalty_claims_b) {
+   try {
+      /// Initialize
+      INVOKE(nft_mint_and_burn_with_different_b);
+      advance_past_m4_hardfork();
+      const string series_name = "SERIESA";
+      const std::string royalty_claim_name = series_name;
+      asset_id_type series_royalty_id = get_asset(royalty_claim_name).id;
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+
+      const auto &series_name_idx = db.get_index_type<nft_series_index>().indices().get<by_nft_series_name>();
+      auto series_itr = series_name_idx.find(series_name);
+      BOOST_REQUIRE(series_itr != series_name_idx.end());
+      const nft_series_object &series_obj = *series_itr;
+
+      // Verify starting conditions
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, series_royalty_id), 1000);
+      BOOST_REQUIRE_EQUAL(series_obj.royalty_claims.size(), 1);
+      auto itr = series_obj.royalty_claims.find(alice_id);
+      BOOST_REQUIRE(itr != series_obj.royalty_claims.end());
+      BOOST_REQUIRE_EQUAL(itr->second.value, 1000);
+
+      /// Transfer 30% of the royalty from the initial claimant to another account
+      transfer(alice_id, bob_id, asset(300, series_royalty_id));
+
+      // Verify new distribution of royalty claims
+      BOOST_CHECK_EQUAL(get_balance(alice_id, series_royalty_id), 1000 - 300);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, series_royalty_id), 300);
+      BOOST_CHECK_EQUAL(series_obj.royalty_claims.size(), 2);
+
+      itr = series_obj.royalty_claims.find(alice_id);
+      BOOST_CHECK(itr != series_obj.royalty_claims.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 1000 - 300);
+
+      itr = series_obj.royalty_claims.find(bob_id);
+      BOOST_CHECK(itr != series_obj.royalty_claims.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 300);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test changing the ownership over royalty claims
+ * by secondary sales of the royalty claims
+ */
+BOOST_AUTO_TEST_CASE(nft_sell_royalty_claims_b) {
+   try {
+      /// Initialize
+      INVOKE(nft_primary_transfer_b);
+      advance_past_m4_hardfork();
+
+      const string series_name = "SERIESA";
+      const std::string royalty_claim_name = series_name;
+      const asset_object series_royalty = get_asset(royalty_claim_name);
+      const asset_id_type series_royalty_id = series_royalty.id;
+
+      const asset_id_type core_id = asset_id_type();
+      const asset_object core = core_id(db);
+
+      GET_ACTOR(creator);
+      GET_ACTOR(mgr);
+      GET_ACTOR(beneficiary);
+      GET_ACTOR(treasury);
+      GET_ACTOR(doug);
+      ACTOR(bob);
+      const int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, bob_id, graphene::chain::asset(init_balance));
+
+      const auto &series_name_idx = db.get_index_type<nft_series_index>().indices().get<by_nft_series_name>();
+      auto series_itr = series_name_idx.find(series_name);
+      BOOST_REQUIRE(series_itr != series_name_idx.end());
+      const nft_series_object &series_obj = *series_itr;
+
+      // Verify starting conditions
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, series_royalty_id), 1000);
+      BOOST_REQUIRE_EQUAL(series_obj.royalty_claims.size(), 1);
+      auto itr = series_obj.royalty_claims.find(creator_id);
+      BOOST_REQUIRE(itr != series_obj.royalty_claims.end());
+      BOOST_REQUIRE_EQUAL(itr->second.value, 1000);
+
+      /// Scenario: Construct two offers that should match and be completely filled
+      // Offer for sale 30% of the royalty claim by the initial claimant
+      const limit_order_object* sell_offer_1 = create_sell_order(creator_id(db), asset(300, series_royalty_id), asset(100, core_id));
+      BOOST_CHECK(sell_offer_1 != nullptr);
+
+      // Offer to buy 30% of the royalty by another account
+      const limit_order_object* buy_offer_1 = create_sell_order(bob_id(db), asset(100, core_id), asset(300, series_royalty_id));
+      BOOST_CHECK(buy_offer_1 == nullptr); // The pointer should be null because the order should have been filled
+
+      // Verify new distribution of royalty claims
+      BOOST_CHECK_EQUAL(get_balance(creator_id, series_royalty_id), 1000 - 300);
+      BOOST_CHECK_EQUAL(get_balance(bob_id, series_royalty_id), 300);
+      BOOST_CHECK_EQUAL(series_obj.royalty_claims.size(), 2);
+
+      itr = series_obj.royalty_claims.find(creator_id);
+      BOOST_CHECK(itr != series_obj.royalty_claims.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 1000 - 300);
+
+      itr = series_obj.royalty_claims.find(bob_id);
+      BOOST_CHECK(itr != series_obj.royalty_claims.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 300);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test the prohibition of paying for an operation with a royalty claim
+ */
+BOOST_AUTO_TEST_CASE(nft_invalid_royalty_claims_for_operation_fee) {
+   try {
+      /// Initialize
+      INVOKE(nft_primary_transfer_b);
+      advance_past_m4_hardfork();
+
+      const string series_name = "SERIESA";
+      const std::string royalty_claim_name = series_name;
+      const asset_object series_royalty = get_asset(royalty_claim_name);
+      const asset_id_type series_royalty_id = series_royalty.id;
+
+      const asset_id_type core_id = asset_id_type();
+      const asset_object core = core_id(db);
+
+      GET_ACTOR(creator);
+      GET_ACTOR(mgr);
+      GET_ACTOR(beneficiary);
+      GET_ACTOR(treasury);
+      GET_ACTOR(doug);
+      ACTOR(bob);
+      const int64_t init_balance(100 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      transfer(committee_account, bob_id, graphene::chain::asset(init_balance));
+
+      const auto &series_name_idx = db.get_index_type<nft_series_index>().indices().get<by_nft_series_name>();
+      auto series_itr = series_name_idx.find(series_name);
+      BOOST_REQUIRE(series_itr != series_name_idx.end());
+      const nft_series_object &series_obj = *series_itr;
+
+      // Verify starting conditions
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, series_royalty_id), 1000);
+      BOOST_REQUIRE_EQUAL(series_obj.royalty_claims.size(), 1);
+      auto itr = series_obj.royalty_claims.find(creator_id);
+      BOOST_REQUIRE(itr != series_obj.royalty_claims.end());
+      BOOST_REQUIRE_EQUAL(itr->second.value, 1000);
+
+      /// Scenario: Configure the royalty claim asset with the conventional characteristics for fee payment
+      // Configuration Step 1: Configure a core exchange rate (CER)
+      asset_update_operation auop;
+      auop.issuer = creator_id;
+      auop.asset_to_update = series_royalty_id;
+      auop.new_options = series_royalty_id(db).options;
+      auop.new_options.core_exchange_rate = price(asset(2, series_royalty_id), asset(1));
+      trx.operations.clear();
+      trx.operations.push_back(auop);
+      sign(trx, creator_private_key);
+      PUSH_TX(db, trx);
+
+      // Configuration Step 2: Fund the royalty fee pool
+      const int64_t pool_0 = 1000000;
+      fund_fee_pool(committee_account(db), series_royalty_id(db), pool_0);
+
+      /// Scenario: Attempt to pay for an operation with a royalty claim
+      // Transfer core asset while attempting to pay for operation with a royalty claim token
+      // The action should fail
+      transfer_operation tx_op;
+      tx_op.from = creator_id;
+      tx_op.to   = doug_id;
+      tx_op.amount = asset(50, core_id);
+      tx_op.fee = asset(100, series_royalty_id);
+
+      trx.clear();
+      trx.operations.push_back(tx_op);
+      sign(trx, creator_private_key);
+      REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "NFT Royalty Claim is prohibited for payment");
+
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, series_royalty_id), 1000);
+
+      // Transfer core asset while attempting to pay for operation with a core token
+      // The action should succeed
+      tx_op.fee = asset(100, core_id);
+
+      trx.clear();
+      trx.operations.push_back(tx_op);
+      sign(trx, creator_private_key);
+      PUSH_TX(db, trx);
+
+      BOOST_REQUIRE_EQUAL(get_balance(creator_id, series_royalty_id), 1000);
+
+   } FC_LOG_AND_RETHROW()
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 // Test sales of single-subdivision assets subject to a particular market fee percentage
