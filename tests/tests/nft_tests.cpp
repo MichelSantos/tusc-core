@@ -69,27 +69,14 @@ struct nft_database_fixture : database_fixture {
       set_expiration(db, trx);
    }
 
-   // Assets that may be associated with an NFT Series should not retain the
-   // charge_market_fee permission at creation
-   // Use a bitmask to include any permission except charge_market_fee
-   const uint16_t UIA_EXCEPT_CHARGE_MARKET_FEE = DEFAULT_UIA_ASSET_ISSUER_PERMISSION & ~charge_market_fee;
-   // Prepare the asset for use as an NFT Series
-   void prepare_uia_for_nft_series(const asset_id_type uia_id,
-                                   const account_id_type issuer_id, const private_key_type issuer_priv_key) {
-      asset_update_operation uop;
-      uop.asset_to_update = uia_id;
-      uop.issuer = issuer_id;
-      uop.new_options = uia_id(db).options;
-      // Merge the existing permissions and flags with:
-      //   Disable new supply
-      //   Lock the maximum supply
-      uop.new_options.issuer_permissions = uop.new_options.issuer_permissions | disable_new_supply | lock_max_supply;
-      uop.new_options.flags = uop.new_options.flags | disable_new_supply | lock_max_supply;
-      trx.clear();
-      trx.operations.push_back(uop);
-      sign(trx, issuer_priv_key);
-      PUSH_TX(db, trx);
-   }
+   // Assets that may be associated with an NFT Series should:
+   // - not retain the charge_market_fee permission at creation
+   // - lock the maximum supply
+   //
+   // 1. Can use DEFAULT_UIA_ASSET_ISSUER_PERMISSION as a reasonable starting set of permissions.
+   // 2. Use a bitmask to exclude the charge_market_fee from the set of permissions.
+   // 3. Add the lock_max_supply permission to the set of remaining permissions.
+   const uint16_t NFT_SERIES_PERMISSION = (DEFAULT_UIA_ASSET_ISSUER_PERMISSION & ~charge_market_fee) | lock_max_supply;
 
    // Create and asset and series from a name
    const asset_id_type create_asset_and_series(string series_name,
@@ -97,9 +84,15 @@ struct nft_database_fixture : database_fixture {
                                                account_id_type beneficiary_id,
                                                account_id_type manager_id,
                                                uint16_t royalty_fee_centipercent) {
-      // Creates an asset
-      const asset_object& series_asset = create_user_issued_asset(series_name, issuer_id(db), 0);
+      // Creates an asset appropriately configured to be an NFT Series
+      const uint16_t precision = 0;
+      const asset_object& series_asset = create_user_issued_asset(series_name, issuer_id(db),
+                                                                  NFT_SERIES_PERMISSION,
+                                                                  NFT_ROYALTY_CLAIMS_COUNT, precision);
       const asset_id_type series_asset_id = series_asset.id;
+
+      // Issue the required supply to become an NFT Series
+      issue_uia(issuer_id, series_asset.amount(NFT_ROYALTY_CLAIMS_COUNT));
 
       // Create the series from the asset
       nft_series_create_operation create_op;
@@ -204,8 +197,14 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_a ) {
 
       // Alice creates an asset
       const string series_name = "SERIESA";
-      const asset_object &pre_existing_asset = create_user_issued_asset(series_name, alice_id(db), 0);
+      const uint16_t precision = 0;
+      const asset_object &pre_existing_asset = create_user_issued_asset(series_name, alice_id(db),
+                                                                        NFT_SERIES_PERMISSION,
+                                                                        NFT_ROYALTY_CLAIMS_COUNT, precision);
       const asset_id_type pre_existing_asset_id = pre_existing_asset.id;
+
+      // Issue the required supply to become an NFT Series
+      issue_uia(alice_id, pre_existing_asset.amount(NFT_ROYALTY_CLAIMS_COUNT));
 
       // Reject series creation by an account that does not control the associated asset
       // Bob attempts an invalid series creation with Alice's asset
@@ -293,7 +292,17 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_a ) {
       BOOST_CHECK_EQUAL(series_obj.royalty_fee_centipercent, 0);
 
       BOOST_TEST_MESSAGE("Verifying NFT Series did not add any issued asset to the creator's balance");
-      BOOST_REQUIRE_EQUAL(get_balance(alice_id, series_obj.asset_id), 0);
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, series_obj.asset_id), NFT_ROYALTY_CLAIMS_COUNT);
+
+      // NFT Concept design assigns the initial NFT_ROYALTY_CLAIMS_COUNT royalty claims to the Series creator
+      BOOST_TEST_MESSAGE("Verifying that distribution and tracking of the initial royalty claims");
+      const std::string royalty_claim_name = series_name;
+      const asset_id_type series_royalty_id = get_asset(royalty_claim_name).id;
+      BOOST_REQUIRE_EQUAL(get_balance(alice_id, series_royalty_id), NFT_ROYALTY_CLAIMS_COUNT);
+      BOOST_REQUIRE_EQUAL(series_obj.royalty_claims.size(), 1);
+      auto itr = series_obj.royalty_claims.find(alice_id);
+      BOOST_REQUIRE(itr != series_obj.royalty_claims.end());
+      BOOST_CHECK_EQUAL(itr->second.value, NFT_ROYALTY_CLAIMS_COUNT);
 
       // Advance to the next block
       generate_block();
@@ -313,6 +322,10 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_a ) {
       sign(trx, alice_private_key);
       REQUIRE_EXCEPTION_WITH_TEXT(PUSH_TX(db, trx), "already a series");
 
+      // Verify the inability of the Series creator to issue more royalty claims
+      const asset_object& royalty_obj = get_asset(royalty_claim_name);
+      REQUIRE_EXCEPTION_WITH_TEXT(issue_uia(alice, royalty_obj.amount(1)), "<= asset_dyn_data->current_max_supply");
+
    } FC_LOG_AND_RETHROW()
 }
 
@@ -331,8 +344,13 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_invalid_a ) {
 
       // Alice creates an asset
       const string series_name = "SERIESA";
-      const asset_object &pre_existing_asset = create_user_issued_asset(series_name, alice_id(db), 0);
+      const uint16_t precision = 0;
+      const asset_object &pre_existing_asset = create_user_issued_asset(series_name, alice_id(db),
+                                                                        NFT_SERIES_PERMISSION,
+                                                                        NFT_ROYALTY_CLAIMS_COUNT, precision);
       const asset_id_type pre_existing_asset_id = pre_existing_asset.id;
+      // Issue the required supply to become an NFT Series
+      issue_uia(alice_id, pre_existing_asset.amount(NFT_ROYALTY_CLAIMS_COUNT));
 
       // Alice creates a sub-asset
       const string sub_asset_name = "SERIESA.SUB1";
@@ -341,22 +359,34 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_invalid_a ) {
 
       // Alice creates an asset
       const string series_b_name = "SERIESB";
-      const asset_object &asset_b = create_user_issued_asset(series_b_name, alice_id(db), 0);
+      const asset_object &asset_b = create_user_issued_asset(series_b_name, alice_id(db),
+                                                             NFT_SERIES_PERMISSION,
+                                                             NFT_ROYALTY_CLAIMS_COUNT, precision);
       const asset_id_type asset_b_id = asset_b.id;
+      // Issue the required supply to become an NFT Series
+      issue_uia(alice_id, asset_b.amount(NFT_ROYALTY_CLAIMS_COUNT));
 
       // Alice creates an asset with name so long that it will prevent sub-assets
       // GRAPHENE_MAX_ASSET_SYMBOL_LENGTH is set to 16.
       // Therefore, the maximum name length for an NFT SERIES should be 14.
       const string series_name_too_long = "SERIES789012345";
-      const asset_object &asset_too_long = create_user_issued_asset(series_name_too_long, alice_id(db), 0);
+      const asset_object &asset_too_long = create_user_issued_asset(series_name_too_long, alice_id(db),
+                                                                    NFT_SERIES_PERMISSION,
+                                                                    NFT_ROYALTY_CLAIMS_COUNT, precision);
       const asset_id_type asset_too_long_id = asset_too_long.id;
+      // Issue the required supply to become an NFT Series
+      issue_uia(alice_id, asset_too_long.amount(NFT_ROYALTY_CLAIMS_COUNT));
 
       // Alice creates an asset with name that is barely short enough that it will permit sub-assets
       // GRAPHENE_MAX_ASSET_SYMBOL_LENGTH is set to 16.
       // Therefore, the maximum name length for an NFT SERIES should be 14.
       const string series_name_short_enough = "SERIES78901234";
-      const asset_object &asset_short_enough = create_user_issued_asset(series_name_short_enough, alice_id(db), 0);
+      const asset_object &asset_short_enough = create_user_issued_asset(series_name_short_enough, alice_id(db),
+                                                                        NFT_SERIES_PERMISSION,
+                                                                        NFT_ROYALTY_CLAIMS_COUNT, precision);
       const asset_id_type asset_short_enough_id = asset_short_enough.id;
+      // Issue the required supply to become an NFT Series
+      issue_uia(alice_id, asset_short_enough.amount(NFT_ROYALTY_CLAIMS_COUNT));
 
       // Reject series creation for a sub-asset
       // Alice attempts to create the series from her sub-asset
@@ -442,11 +472,17 @@ BOOST_AUTO_TEST_CASE( nft_series_creation_before_hardfork ) {
 
       // Advance to before the hardfork time
       generate_blocks(HARDFORK_NFT_M1_TIME - 100);
+      set_expiration(db, trx);
 
       // Alice creates an asset
       const string series_name = "SERIESA";
-      const asset_object &pre_existing_asset = create_user_issued_asset(series_name, alice_id(db), 0);
+      const uint16_t precision = 0;
+      const asset_object &pre_existing_asset = create_user_issued_asset(series_name, alice_id(db),
+                                                                        NFT_SERIES_PERMISSION,
+                                                                        NFT_ROYALTY_CLAIMS_COUNT, precision);
       const asset_id_type pre_existing_asset_id = pre_existing_asset.id;
+      // Issue the required supply to become an NFT Series
+      issue_uia(alice_id, pre_existing_asset.amount(NFT_ROYALTY_CLAIMS_COUNT));
 
       // Reject series creation before the hardfork
       // Alice attempts an valid series creation creation with Alice's asset
@@ -1301,10 +1337,16 @@ BOOST_AUTO_TEST_CASE( nft_minting_before_hardfork ) {
 
       // Advance to before the hardfork time
       generate_blocks(HARDFORK_NFT_M1_TIME - 100);
+      set_expiration(db, trx);
 
       // Alice creates an asset
       const string series_name = "SERIESA";
-      create_user_issued_asset(series_name, alice_id(db), 0);
+      const uint16_t precision = 0;
+      const asset_object &pre_existing_asset = create_user_issued_asset(series_name, alice_id(db),
+                                                                        NFT_SERIES_PERMISSION,
+                                                                        NFT_ROYALTY_CLAIMS_COUNT, precision);
+      // Issue the required supply to become an NFT Series
+      issue_uia(alice_id, pre_existing_asset.amount(NFT_ROYALTY_CLAIMS_COUNT));
 
       // Alice creates a sub-asset
       const string sub_asset_1_name = "SERIESA.SUB1";
@@ -4583,6 +4625,7 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_nft_burn_of_returned_tokens ) {
       // 1 Account creation
       // 1 Transfer of CORE to Alice
       // 1 UIA Creation
+      // 1 UIA Issuance for subsequent royalty tokens
       // 1 Series Creation
       // 1 Create UIA #1
       // 1 NFT Mint Token #1 (Associate UIA #1 with the Series)
@@ -4590,7 +4633,7 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_nft_burn_of_returned_tokens ) {
       // 1 NFT Mint Token #2 (Associate UIA #2 with the Series)
       // 4 NFT Primary Transfers
       // 4 NFT Burns
-      BOOST_CHECK_EQUAL(count, 16);
+      BOOST_CHECK_EQUAL(count, 17);
 
       operation op;
 
@@ -4692,22 +4735,29 @@ BOOST_AUTO_TEST_CASE( db_api_account_history_nft_burn_of_returned_tokens ) {
       BOOST_CHECK(nft_series_create_op.manager == alice_id);
       BOOST_CHECK(nft_series_create_op.beneficiary == alice_id);
 
-      // The next operation should correspond to Alice's creation of the Series UIA (parent asset)
+      // The next operation should correspond to Alice's issuance of the Series UIA (parent asset)
       op = histories[13].op;
+      BOOST_REQUIRE(op.is_type<asset_issue_operation>());
+      asset_issue_operation asset_issue_op = op.get<asset_issue_operation>();
+      BOOST_CHECK(asset_issue_op.issuer == alice_id);
+      BOOST_CHECK(asset_issue_op.asset_to_issue == asset(1000, series_id));
+
+      // The next operation should correspond to Alice's creation of the Series UIA (parent asset)
+      op = histories[14].op;
       BOOST_REQUIRE(op.is_type<asset_create_operation>());
       asset_create_op = op.get<asset_create_operation>();
       BOOST_CHECK(asset_create_op.issuer == alice_id);
       BOOST_CHECK(asset_create_op.symbol == series_name);
 
       // The next operation should correspond to the transfer of CORE to Alice
-      op = histories[14].op;
+      op = histories[15].op;
       BOOST_REQUIRE(op.is_type<transfer_operation>());
       transfer_operation transfer_op = op.get<transfer_operation>();
       BOOST_CHECK(transfer_op.to == alice_id);
       BOOST_CHECK(transfer_op.amount == asset(100 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
 
       // The next operation should correspond to Alice's account creation
-      op = histories[15].op;
+      op = histories[16].op;
       BOOST_REQUIRE(op.is_type<account_create_operation>());
       account_create_operation ac_op = op.get<account_create_operation>();
       BOOST_CHECK_EQUAL(ac_op.name, "alice");
