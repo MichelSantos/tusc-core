@@ -34,6 +34,8 @@
 #include <graphene/chain/committee_member_object.hpp>
 #include <graphene/chain/market_evaluator.hpp>
 #include <graphene/protocol/fee_schedule.hpp>
+#include <graphene/chain/nft_object.hpp>
+#include <graphene/chain/nft_evaluator.hpp>
 
 namespace graphene { namespace chain {
 database& generic_evaluator::db()const { return trx_state->db(); }
@@ -74,6 +76,13 @@ database& generic_evaluator::db()const { return trx_state->db(); }
          core_fee_paid = fee_from_pool.amount;
          FC_ASSERT( core_fee_paid <= fee_asset_dyn_data->fee_pool, "Fee pool balance of '${b}' is less than the ${r} required to convert ${c}",
                     ("r", db().to_pretty_string( fee_from_pool))("b",db().to_pretty_string(fee_asset_dyn_data->fee_pool))("c",db().to_pretty_string(fee)) );
+
+         // Prohibit the payment of any operation fee with an NFT Royalty Claim
+         const fc::time_point_sec &now = d.head_block_time();
+         if (HARDFORK_NFT_M4_PASSED(now)) {
+            FC_ASSERT(!is_nft_royalty_claim(d, fee_from_account.asset_id),
+                      "NFT Royalty Claim is prohibited for payment of an operation fee");
+         }
       }
    }
 
