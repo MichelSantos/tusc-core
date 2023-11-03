@@ -38,6 +38,14 @@ namespace graphene {
 
       using namespace graphene::db;
 
+      // NFT Concept design calls for an initial quantity of royalty claims
+      const uint64_t NFT_ROYALTY_CLAIMS_COUNT = 1000;
+
+      struct nft_royalty_claim {
+         account_id_type claimant;
+         share_type claims = 0;
+      };
+
       /**
        *  @brief Tracks a Series into which tokens are associated
        *  @ingroup object
@@ -68,6 +76,9 @@ namespace graphene {
 
          /// Series manager
          account_id_type manager;
+
+         /// Royalty claims
+         std::map<account_id_type, share_type> royalty_claims;
       };
 
       struct by_nft_series_asset_id;
@@ -77,11 +88,11 @@ namespace graphene {
          indexed_by<
             ordered_unique< tag<by_id>, member< object, object_id_type, &object::id > >,
             ordered_unique< tag<by_nft_series_name>, member<nft_series_object, string, &nft_series_object::series_name> >,
-            ordered_unique< tag<by_nft_series_asset_id>, member<nft_series_object, asset_id_type, &nft_series_object::asset_id> >
+            ordered_unique< tag<by_nft_series_asset_id>,
+                            member<nft_series_object, asset_id_type, &nft_series_object::asset_id> >
          >
       > nft_series_multi_index_type;
       typedef generic_index<nft_series_object, nft_series_multi_index_type> nft_series_index;
-
 
       /**
        *  @brief Tracks a token
@@ -162,12 +173,14 @@ namespace graphene {
 MAP_OBJECT_ID_TO_TYPE(graphene::chain::nft_series_object)
 MAP_OBJECT_ID_TO_TYPE(graphene::chain::nft_token_object)
 
+FC_REFLECT( graphene::chain::nft_royalty_claim, (claimant)(claims) )
 FC_REFLECT_DERIVED( graphene::chain::nft_series_object, (graphene::db::object),
                     (series_name)
                     (asset_id)
                     (royalty_fee_centipercent)
                     (beneficiary)
                     (manager)
+                    (royalty_claims)
                   )
 
 FC_REFLECT_DERIVED( graphene::chain::nft_token_object, (graphene::db::object),
