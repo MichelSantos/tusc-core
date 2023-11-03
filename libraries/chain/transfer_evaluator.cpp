@@ -150,6 +150,11 @@ void_result transfer_evaluator::do_evaluate( const transfer_operation& op )
          }
       }
 
+      // Track the transfer of NFT Royalty claims
+      if (is_nft_royalty_claim(d, op.amount.asset_id)) {
+         _rtx = evaluate_royalty_claim_transfer(d, op.from, op.amount, op.to);
+      }
+
       return void_result();
    } FC_RETHROW_EXCEPTIONS( error, "Unable to transfer ${a} from ${f} to ${t}", ("a",d.to_pretty_string(op.amount))("f",op.from(d).name)("t",op.to(d).name) );
 
@@ -174,6 +179,11 @@ void_result transfer_evaluator::do_apply( const transfer_operation& o )
       // Virtual operation for account history
       const nft_royalty_paid_operation &vop = nft_royalty_paid_operation(o.amount, _nft_royalty, o.from);
       db().push_applied_operation(vop);
+   }
+
+   if (_rtx.ptr_series_obj != nullptr) {
+      // Transfer royalty claim from one party to another
+      apply_royalty_claim_transfer(db(), _rtx);
    }
 
    return void_result();

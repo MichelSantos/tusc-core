@@ -26,6 +26,7 @@
 #include <graphene/chain/evaluator.hpp>
 #include <graphene/chain/database.hpp>
 #include <graphene/chain/nft_object.hpp>
+#include <graphene/chain/nft_evaluator.hpp>
 
 namespace graphene { namespace chain {
 
@@ -41,6 +42,10 @@ namespace graphene { namespace chain {
          const nft_token_object* _ptr_nft_obj = nullptr;
          // The amount of the NFT royalty payment
          asset _nft_royalty;
+
+         // The pointer to the NFT series object within the nft_pending_royalty_claim_transfer
+         // will be non-null only if an NFT royalty claim is involved
+         nft_pending_royalty_claim_transfer _rtx;
    };
 
    class override_transfer_evaluator : public evaluator<override_transfer_evaluator>
