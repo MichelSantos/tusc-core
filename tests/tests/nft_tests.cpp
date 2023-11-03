@@ -64,6 +64,33 @@ struct nft_database_fixture : database_fixture {
       set_expiration(db, trx);
    }
 
+   void advance_past_m4_hardfork() {
+      generate_blocks(HARDFORK_NFT_M4_TIME);
+      set_expiration(db, trx);
+   }
+
+   // Assets that may be associated with an NFT Series should not retain the
+   // charge_market_fee permission at creation
+   // Use a bitmask to include any permission except charge_market_fee
+   const uint16_t UIA_EXCEPT_CHARGE_MARKET_FEE = DEFAULT_UIA_ASSET_ISSUER_PERMISSION & ~charge_market_fee;
+   // Prepare the asset for use as an NFT Series
+   void prepare_uia_for_nft_series(const asset_id_type uia_id,
+                                   const account_id_type issuer_id, const private_key_type issuer_priv_key) {
+      asset_update_operation uop;
+      uop.asset_to_update = uia_id;
+      uop.issuer = issuer_id;
+      uop.new_options = uia_id(db).options;
+      // Merge the existing permissions and flags with:
+      //   Disable new supply
+      //   Lock the maximum supply
+      uop.new_options.issuer_permissions = uop.new_options.issuer_permissions | disable_new_supply | lock_max_supply;
+      uop.new_options.flags = uop.new_options.flags | disable_new_supply | lock_max_supply;
+      trx.clear();
+      trx.operations.push_back(uop);
+      sign(trx, issuer_priv_key);
+      PUSH_TX(db, trx);
+   }
+
    // Create and asset and series from a name
    const asset_id_type create_asset_and_series(string series_name,
                                                account_id_type issuer_id, private_key_type issuer_priv_key,
