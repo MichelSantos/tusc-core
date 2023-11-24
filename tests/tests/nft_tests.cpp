@@ -37,6 +37,7 @@
 #include <graphene/app/database_api.hpp> // For testing current state
 #include <graphene/app/api.hpp> // For testing account history
 #include <graphene/nft_history/nft_history.hpp> // For testing NFT history
+#include <graphene/chain/nft_evaluator.hpp> // For testing NFT royalty calculations
 
 #include "../common/database_fixture.hpp"
 
@@ -5894,6 +5895,871 @@ BOOST_AUTO_TEST_CASE(nft_invalid_royalty_claims_for_operation_fee) {
       PUSH_TX(db, trx);
 
       BOOST_REQUIRE_EQUAL(get_balance(creator_id, series_royalty_id), 1000);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+
+// Calculate royalty distributions
+BOOST_AUTO_TEST_CASE(nft_calc_royalty_distribution_example_1) {
+   try {
+      BOOST_TEST_MESSAGE("Calculation of NFT Secondary Royalty Distribution Example 1");
+
+      // Initialize
+      account_id_type a3(3);
+      account_id_type a5(5);
+      account_id_type a17(17);
+      account_id_type a26(26);
+
+      vector<nft_royalty_claim> royalty_claims;
+      royalty_claims.emplace_back(nft_royalty_claim{a3, 600});
+      royalty_claims.emplace_back(nft_royalty_claim{a5, 300});
+      royalty_claims.emplace_back(nft_royalty_claim{a17, 90});
+      royalty_claims.emplace_back(nft_royalty_claim{a26, 10});
+
+      // Calculate the distribution
+      const share_type& total_royalties = 1012;
+      std::map<account_id_type, share_type> dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 4);
+
+      auto itr = dist.find(a3);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 607);
+
+      itr = dist.find(a5);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 304);
+
+      itr = dist.find(a17);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 91);
+
+      itr = dist.find(a26);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 10);
+
+
+      // Repeat the test but with the royalty claims provided in a different order
+      royalty_claims.clear();
+      royalty_claims.emplace_back(nft_royalty_claim{a17, 90});
+      royalty_claims.emplace_back(nft_royalty_claim{a5, 300});
+      royalty_claims.emplace_back(nft_royalty_claim{a26, 10});
+      royalty_claims.emplace_back(nft_royalty_claim{a3, 600});
+
+      // Calculate the distribution
+      dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 4);
+
+      itr = dist.find(a3);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 607);
+
+      itr = dist.find(a5);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 304);
+
+      itr = dist.find(a17);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 91);
+
+      itr = dist.find(a26);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 10);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+
+// Calculate royalty distributions
+BOOST_AUTO_TEST_CASE(nft_calc_royalty_distribution_example_2) {
+   try {
+      BOOST_TEST_MESSAGE("Calculation of NFT Secondary Royalty Distribution Example 2");
+
+      // Initialize
+      vector<account_id_type> accounts;
+      vector<nft_royalty_claim> claims_sorted_by_forward_id;
+      for( uint16_t i = 1; i <= 1000; ++i ) {
+         account_id_type a(i);
+         accounts.emplace_back(a);
+
+         claims_sorted_by_forward_id.emplace_back(nft_royalty_claim{a, 1});
+      }
+      vector<nft_royalty_claim> royalty_claims = claims_sorted_by_forward_id;
+
+      // Calculate the distribution
+      const share_type& total_royalties = 1012;
+      std::map<account_id_type, share_type> dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 1000); // There should be 1000 recipients
+
+      auto itr = dist.find(account_id_type(0));
+      for( uint16_t i = 1; i <= 1000; ++i ) {
+         account_id_type a(i);
+
+         itr = dist.find(a);
+         BOOST_REQUIRE(itr != dist.end());
+
+         const share_type& allotment = itr->second.value;
+         if (i <= 12) {
+            BOOST_REQUIRE_EQUAL(allotment.value, 2);
+         } else {
+            BOOST_REQUIRE_EQUAL(allotment.value, 1);
+         }
+      }
+
+      ///
+      /// Repeat the test but with the royalty claims provided in a different order
+      ///
+      vector<nft_royalty_claim> claims_sorted_by_reverse_id;
+      for( uint16_t i = 1000; i >= 1; --i ) {
+         account_id_type a(i);
+         accounts.emplace_back(a);
+
+         claims_sorted_by_reverse_id.emplace_back(nft_royalty_claim{a, 1});
+      }
+      royalty_claims = claims_sorted_by_reverse_id;
+
+      dist = calc_royalty_distribution(total_royalties, claims_sorted_by_reverse_id);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 1000); // There should be 1000 recipients
+
+      for( uint16_t i = 1; i <= 1000; ++i ) {
+         account_id_type a(i);
+
+         itr = dist.find(a);
+         BOOST_REQUIRE(itr != dist.end());
+
+         const share_type& allotment = itr->second.value;
+         if (i <= 12) {
+            BOOST_REQUIRE_EQUAL(allotment.value, 2);
+         } else {
+            BOOST_REQUIRE_EQUAL(allotment.value, 1);
+         }
+      }
+
+   } FC_LOG_AND_RETHROW()
+}
+
+// Calculate royalty distributions
+BOOST_AUTO_TEST_CASE(nft_calc_royalty_distribution_example_3) {
+   try {
+      BOOST_TEST_MESSAGE("Calculation of NFT Secondary Royalty Distribution Example 3");
+
+      // Initialize
+      account_id_type a3(3);
+      account_id_type a5(5);
+      account_id_type a17(17);
+      account_id_type a26(26);
+
+      vector<nft_royalty_claim> royalty_claims;
+      royalty_claims.emplace_back(nft_royalty_claim{a3, 600});
+      royalty_claims.emplace_back(nft_royalty_claim{a5, 300});
+      royalty_claims.emplace_back(nft_royalty_claim{a17, 90});
+      royalty_claims.emplace_back(nft_royalty_claim{a26, 10});
+
+      // Calculate the distribution
+      share_type total_royalties = 999;
+      std::map<account_id_type, share_type> dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 4);
+
+      auto itr = dist.find(a3);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (60*9) + (6*11));
+
+      itr = dist.find(a5);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (30*9) + (3*11));
+
+      itr = dist.find(a17);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 9*9);
+
+      itr = dist.find(a26);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 1*9);
+
+
+      ///
+      /// Increment the royalties by 1 satoshi should result in a different distribution
+      /// The distribution should match exactly with the claim distribution
+      ///
+      // Calculate the distribution
+      total_royalties = 999 + 1;
+      dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 4);
+
+      itr = dist.find(a3);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 600);
+
+      itr = dist.find(a5);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 300);
+
+      itr = dist.find(a17);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 90);
+
+      itr = dist.find(a26);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 10);
+
+
+      ///
+      /// Set the royalty distribution to 1999 satoshi
+      ///
+      total_royalties = 1999;
+      dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 4);
+
+      itr = dist.find(a3);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (600*1) + (60*9) + (6*11));
+
+      itr = dist.find(a5);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (300*1) + (30*9) + (3*11));
+
+      itr = dist.find(a17);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (90*1) + (9*9));
+
+      itr = dist.find(a26);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (10*1) + (1*9));
+
+
+      ///
+      /// Set the royalty distribution to 2000 satoshi
+      /// The distribution should match exactly TWICE the claim distribution
+      ///
+      // Calculate the distribution
+      total_royalties = 2 * (999 + 1);
+      dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 4);
+
+      itr = dist.find(a3);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (600*2));
+
+      itr = dist.find(a5);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (300*2));
+
+      itr = dist.find(a17);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (90*2));
+
+      itr = dist.find(a26);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (10*2));
+
+      ///
+      /// Set the royalty distribution to 20001satoshi
+      /// The distribution should match exactly TWICE the claim distribution
+      ///
+      // Calculate the distribution
+      total_royalties = 2001;
+      dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 4);
+
+      itr = dist.find(a3);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (600*2) + 1);
+
+      itr = dist.find(a5);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (300*2));
+
+      itr = dist.find(a17);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (90*2));
+
+      itr = dist.find(a26);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (10*2));
+
+   } FC_LOG_AND_RETHROW()
+}
+
+// Calculate royalty distributions
+BOOST_AUTO_TEST_CASE(nft_calc_royalty_distribution_edge_cases) {
+   try {
+      BOOST_TEST_MESSAGE("Calculation of NFT Secondary Royalty Distribution Edge Cases");
+
+      ///
+      /// Edge Case A: No royalty claimants
+      ///
+      // Initialize
+      vector<nft_royalty_claim> royalty_claims;
+      // No royalty claims
+
+      // Calculate the distribution
+      share_type total_royalties = 999;
+      std::map<account_id_type, share_type> dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 0);
+
+
+      ///
+      /// One tiny royalty claimant
+      ///
+      // Initialize
+      account_id_type a3(3);
+      royalty_claims.clear();
+      royalty_claims.emplace_back(nft_royalty_claim{a3, 1});
+
+      // Calculate the distribution
+      dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 1);
+
+      auto itr = dist.find(a3);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, 999*1);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+
+/**
+ * Test distribution of NFT royalties when no NFT Series exist
+ */
+BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_distribution_without_any_series) {
+   try {
+      /// Advance to when royalty distributions become activated
+      /// In so doing, confirm that royalty distribution logic breaks nothing before the activation.
+      advance_past_m4_hardfork();
+
+      /// Trigger royalty distribution
+      generate_blocks(db.get_dynamic_global_properties().next_maintenance_time);
+      generate_block();
+
+      /// Trigger another royalty distribution
+      generate_blocks(db.get_dynamic_global_properties().next_maintenance_time);
+      generate_block();
+
+   } FC_LOG_AND_RETHROW()
+}
+
+
+/**
+ * Test distribution of NFT royalties from one NFT Series with a single royalty claimant
+ */
+BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_distribution_d1_1claimant) {
+   try {
+      INVOKE(nft_2ndXfer_royalty_collection_d);
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(creatora);
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      GET_ACTOR(doug);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const string sub_asset_3_name = series_name + ".SUB3";
+
+      share_type creatora_init_balance_core = get_balance(creatora_id, core_id);
+
+      /// Check initial conditions of the reservoirs
+      // Verify the implementation object for sub_asset_2
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(3 + 10, core_id));
+      }
+
+      // Verify the implementation object sub_asset_3
+      {
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(150 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      }
+
+      /// Trigger royalty distribution
+      generate_blocks(db.get_dynamic_global_properties().next_maintenance_time);
+      generate_block();
+
+      /// Verify whether the reservoirs have been emptied
+      // Verify the implementation object for sub_asset_2
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify the implementation object for sub_asset_3
+      {
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify whether the Series royalty claimants have received their distribution
+      // The sole royalty claimant is creatora
+      BOOST_CHECK_EQUAL(get_balance(creatora_id, core_id),
+                        creatora_init_balance_core.value + 3 + 10 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION));
+
+      ///
+      /// Trigger another royalty distribution event after the absence of any new royalty-collecting activities
+      ///
+      generate_blocks(db.get_dynamic_global_properties().next_maintenance_time);
+      generate_block();
+
+      /// Verify whether the reservoirs have been emptied
+      // Verify the implementation object for sub_asset_2
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify the implementation object for sub_asset_3
+      {
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify whether the Series royalty claimants have received their distribution
+      // The sole royalty claimant is creatora
+      BOOST_CHECK_EQUAL(get_balance(creatora_id, core_id),
+                        creatora_init_balance_core.value + 3 + 10 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION));
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test distribution of NFT royalties from multiple NFT Series with a single royalty claimant
+ */
+BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_distribution_d2_1claimant) {
+   try {
+      // Invoke a test which previously created a Series containing 3 NFTs
+      INVOKE(nft_2ndXfer_royalty_collection_d);
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(creatora);
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      GET_ACTOR(doug);
+      GET_ACTOR(beneficiarya);
+      GET_ACTOR(mgra);
+      GET_ACTOR(treasurya);
+
+      const string series_a_name = "SERIESA";
+      const string sub_asset_a1_name = series_a_name + ".SUB1";
+      const string sub_asset_a2_name = series_a_name + ".SUB2";
+      const string sub_asset_a3_name = series_a_name + ".SUB3";
+
+      share_type creatora_init_balance_core = get_balance(creatora_id, core_id);
+      share_type alice_init_balance_core = get_balance(alice_id, core_id);
+      share_type bob_init_balance_core = get_balance(bob_id, core_id);
+      share_type charlie_init_balance_core = get_balance(charlie_id, core_id);
+      share_type doug_init_balance_core = get_balance(doug_id, core_id);
+
+      /// Check initial conditions of the reservoirs
+      // Verify the implementation object for sub_asset_2
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      {
+         auto token_itr = token_name_idx.find(sub_asset_a2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(3 + 10, core_id));
+      }
+
+      // Verify the implementation object sub_asset_3
+      {
+         auto token_itr = token_name_idx.find(sub_asset_a3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(150 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      }
+
+      ///
+      /// Create a new NFT Series
+      ///
+      const string series_b_name = "SERIESB";
+      uint16_t royalty_fee_centipercent = 5 * GRAPHENE_1_PERCENT;
+      create_asset_and_series(series_b_name, creatora_id,
+                              creatora_private_key,
+                              beneficiarya_id, mgra_id,
+                              royalty_fee_centipercent);
+
+      // Create an asset with a minimum price of 0 CORE per subdivision
+      // and mint it into the Series
+      const string sub_asset_b1_name = series_b_name + ".SUB1";
+      asset req_backing_per_subdivision = asset(0, core_id);
+      asset min_price_per_subdivision = asset(0, core_id);
+      const uint16_t flags = DEFAULT_UIA_ASSET_ISSUER_PERMISSION ^transfer_restricted; // Exclude transfer restrictions
+      const asset_id_type sub_asset_b1_id = create_sub_asset_and_mint(sub_asset_b1_name, 2,
+                                                                      creatora_id, creatora_private_key,
+                                                                      req_backing_per_subdivision,
+                                                                      min_price_per_subdivision,
+                                                                      flags);
+
+      // Create an asset with a minimum price of 10 CORE per subdivision
+      // and mint it into the Series
+      const string sub_asset_b2_name = series_b_name + ".SUB2";
+      req_backing_per_subdivision = asset(10, core_id);
+      min_price_per_subdivision = asset(10, core_id);
+      const asset_id_type sub_asset_b2_id = create_sub_asset_and_mint(sub_asset_b2_name, 2,
+                                                                      creatora_id, creatora_private_key,
+                                                                      req_backing_per_subdivision,
+                                                                      min_price_per_subdivision,
+                                                                      flags);
+
+      // Create an asset with a minimum price of 10 CORE per subdivision
+      // and mint it into the Series
+      const string sub_asset_b3_name = series_b_name + ".SUB3";
+      req_backing_per_subdivision = asset(25, core_id);
+      min_price_per_subdivision = asset(75 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id);
+      const asset_id_type sub_asset_b3_id = create_sub_asset_and_mint(sub_asset_b3_name, 2,
+                                                                      creatora_id, creatora_private_key,
+                                                                      req_backing_per_subdivision,
+                                                                      min_price_per_subdivision,
+                                                                      flags);
+
+      // Initialize balances of NFTs from Series B
+      {
+         // Primary transfer
+         // Manager attempts to primary transfer 40 subdivisions (40%) of the token from the Inventory
+         graphene::chain::nft_primary_transfer_operation ptx_op;
+
+         BOOST_TEST_MESSAGE("Primary transfer of 40% of Token B1");
+         ptx_op = nft_primary_transfer_operation();
+         ptx_op.amount = asset(40, sub_asset_b1_id);
+         ptx_op.to = alice_id;
+         ptx_op.manager = mgra_id;
+         // No provisioner is required for NFTs that do not require backing
+         trx.clear();
+         trx.operations.push_back(ptx_op);
+         sign(trx, mgra_private_key);
+         PUSH_TX(db, trx);
+
+         BOOST_TEST_MESSAGE("Primary transfer of 40% of Token B2");
+         ptx_op = nft_primary_transfer_operation();
+         ptx_op.amount = asset(40, sub_asset_b2_id);
+         ptx_op.to = bob_id;
+         ptx_op.manager = mgra_id;
+         ptx_op.provisioner = treasurya_id;
+         trx.clear();
+         trx.operations.push_back(ptx_op);
+         sign(trx, mgra_private_key);
+         sign(trx, treasurya_private_key);
+         PUSH_TX(db, trx);
+
+         BOOST_TEST_MESSAGE("Primary transfer of 100% of Token B3");
+         ptx_op = nft_primary_transfer_operation();
+         ptx_op.amount = asset(100, sub_asset_b3_id);
+         ptx_op.to = bob_id;
+         ptx_op.manager = mgra_id;
+         ptx_op.provisioner = treasurya_id;
+         trx.clear();
+         trx.operations.push_back(ptx_op);
+         sign(trx, mgra_private_key);
+         sign(trx, treasurya_private_key);
+         PUSH_TX(db, trx);
+
+         // Verify everyone's balances of Token #1
+         BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_b1_id), 40);
+         BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_b1_id), 0);
+         BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_b1_id), 0);
+         BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_b1_id), 0);
+
+         // Verify everyone's balances of Token #2
+         BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_b2_id), 0);
+         BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_b2_id), 40);
+         BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_b2_id), 0);
+         BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_b2_id), 0);
+
+         // Verify everyone's balances of Token #3
+         BOOST_CHECK_EQUAL(get_balance(alice_id, sub_asset_b3_id), 0);
+         BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_b3_id), 100);
+         BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_b3_id), 0);
+         BOOST_CHECK_EQUAL(get_balance(doug_id, sub_asset_b3_id), 0);
+      }
+
+
+      {
+         ///
+         /// Secondary transfer of an NFT
+         /// 15 subdivision of NFT B2 will be transferred.
+         /// With an RFP = 5% and a minimum price of 10 CORE per subdivision
+         /// The expected royalty fee should equal 5% * (150 CORE) = 7.5 CORE -> 8 CORE
+         /// Therefore, the CORE balances should be affected.
+         ///
+         asset amountb2 = graphene::chain::asset(15, sub_asset_b2_id);
+         transfer(bob_id, charlie_id, amountb2);
+         BOOST_CHECK_EQUAL(get_balance(bob_id, sub_asset_b2_id), 40 - 15);
+         BOOST_CHECK_EQUAL(get_balance(charlie_id, sub_asset_b2_id), 15);
+
+         BOOST_CHECK_EQUAL(get_balance(alice_id, core_id), alice_init_balance_core.value);
+         BOOST_CHECK_EQUAL(get_balance(bob_id, core_id), bob_init_balance_core.value - 8);
+         BOOST_CHECK_EQUAL(get_balance(charlie_id, core_id), charlie_init_balance_core.value);
+         BOOST_CHECK_EQUAL(get_balance(doug_id, core_id), doug_init_balance_core.value);
+
+         // Verify the implementation object
+         {
+            auto token_itr = token_name_idx.find(sub_asset_b2_name);
+            BOOST_REQUIRE(token_itr != token_name_idx.end());
+            const nft_token_object &token_obj = *token_itr;
+            BOOST_CHECK(token_obj.royalty_reservoir == asset(8, core_id));
+         }
+      }
+
+      ///
+      /// Trigger royalty distribution
+      ///
+      generate_blocks(db.get_dynamic_global_properties().next_maintenance_time);
+      generate_block();
+
+      /// Verify whether the reservoirs have been emptied
+      // Verify the implementation object for sub_asset_2
+      {
+         auto token_itr = token_name_idx.find(sub_asset_a2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify the implementation object for sub_asset_3
+      {
+         auto token_itr = token_name_idx.find(sub_asset_a3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify the implementation object for sub_asset_b2
+      {
+         auto token_itr = token_name_idx.find(sub_asset_b2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify whether the Series royalty claimants have received their distribution
+      // The sole royalty claimant is creatora
+      BOOST_CHECK_EQUAL(get_balance(creatora_id, core_id),
+                        creatora_init_balance_core.value + 3 + 10 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION) + 8);
+
+   } FC_LOG_AND_RETHROW()
+}
+
+// Calculate royalty distributions
+BOOST_AUTO_TEST_CASE(nft_calc_royalty_distribution_nft_2ndXfer_royalty_distribution_d1_4claimants) {
+   try {
+      BOOST_TEST_MESSAGE("Calculation of NFT Secondary Royalty Distribution Edge Cases");
+
+      ///
+      /// Edge Case A: No royalty claimants
+      ///
+      // Initialize
+      account_id_type claimant_a(11);
+      account_id_type claimant_b(12);
+      account_id_type claimant_c(13);
+      account_id_type claimant_d(14);
+
+      vector<nft_royalty_claim> royalty_claims;
+      royalty_claims.emplace_back(nft_royalty_claim{claimant_d, 100});
+      royalty_claims.emplace_back(nft_royalty_claim{claimant_c, 200});
+      royalty_claims.emplace_back(nft_royalty_claim{claimant_b, 300});
+      royalty_claims.emplace_back(nft_royalty_claim{claimant_a, 400});
+
+      // Calculate the distribution
+      share_type total_royalties = 3 + 10 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION);
+      std::map<account_id_type, share_type> dist = calc_royalty_distribution(total_royalties, royalty_claims);
+
+      // Verify the results
+      BOOST_CHECK_EQUAL(dist.size(), 4);
+
+      auto itr = dist.find(claimant_a);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 400/1000) + (4) + (1));
+
+      itr = dist.find(claimant_b);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 300/1000) + (3) + (1));
+
+      itr = dist.find(claimant_c);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 200/1000) + (2) + (1));
+
+      itr = dist.find(claimant_d);
+      BOOST_CHECK(itr != dist.end());
+      BOOST_CHECK_EQUAL(itr->second.value, (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 100/1000) + (1) + (0));
+
+   } FC_LOG_AND_RETHROW()
+}
+
+/**
+ * Test distribution of NFT royalties from one NFT Series with multiple royalty claimants
+ */
+BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_distribution_d1_4claimants) {
+   try {
+      INVOKE(nft_2ndXfer_royalty_collection_d);
+
+      // Initialize
+      const asset_id_type core_id = asset_id_type();
+      GET_ACTOR(creatora);
+      GET_ACTOR(alice);
+      GET_ACTOR(bob);
+      GET_ACTOR(charlie);
+      GET_ACTOR(doug);
+
+      const string series_name = "SERIESA";
+      const string sub_asset_1_name = series_name + ".SUB1";
+      const string sub_asset_2_name = series_name + ".SUB2";
+      const string sub_asset_3_name = series_name + ".SUB3";
+
+      share_type creatora_init_balance_core = get_balance(creatora_id, core_id);
+
+      /// Check initial conditions of the reservoirs
+      // Verify the implementation object for sub_asset_2
+      const auto &token_name_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_name>();
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(3 + 10, core_id));
+      }
+
+      // Verify the implementation object sub_asset_3
+      {
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(150 * GRAPHENE_BLOCKCHAIN_PRECISION, core_id));
+      }
+
+      /// Transfer the royalty claims to an entirely new set of accounts
+      ACTORS((claimantd)(claimantc)(claimantb)(claimanta));
+      // Claimant D, being created first, will have a smaller integer identifier than Claimant C.
+      // Claimant C, being created first, will have a smaller integer identifier than Claimant B.
+      // Claimant B, being created first, will have a smaller integer identifier than Claimant A.
+      // Consequently, during Round 4 of the NFT Royalty Distribution, the claimants will
+      // be ranked in order: D, C, B, A
+      BOOST_CHECK_LT(claimantd_id.instance.value, claimantc_id.instance.value);
+      BOOST_CHECK_LT(claimantc_id.instance.value, claimantb_id.instance.value);
+      BOOST_CHECK_LT(claimantb_id.instance.value, claimanta_id.instance.value);
+
+      const asset_id_type series_id = get_asset(series_name).id;
+      transfer(creatora, claimantd, graphene::chain::asset(100, series_id));
+      transfer(creatora, claimantc, graphene::chain::asset(200, series_id));
+      transfer(creatora, claimantb, graphene::chain::asset(300, series_id));
+      transfer(creatora, claimanta, graphene::chain::asset(400, series_id));
+      BOOST_CHECK_EQUAL(get_balance(claimanta_id, core_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(claimantb_id, core_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(claimantc_id, core_id), 0);
+      BOOST_CHECK_EQUAL(get_balance(claimantd_id, core_id), 0);
+
+      /// Trigger royalty distribution
+      generate_blocks(db.get_dynamic_global_properties().next_maintenance_time);
+      generate_block();
+
+      /// Verify whether the reservoirs have been emptied
+      // Verify the implementation object for sub_asset_2
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify the implementation object for sub_asset_3
+      {
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify whether the Series royalty claimants have received their distribution
+      BOOST_CHECK_EQUAL(get_balance(creatora_id, core_id),
+                        creatora_init_balance_core.value + 0);
+      // Round 1 will capture the increments of 100s
+      // Round 2 will capture 0 of the remaining 13 satoshis
+      // Round 3 will capture 10 of the remaining 13 satoshis
+      // Round 4 will capture 3 of the remaining 3 satoshis
+      //
+      // Claimant A has the lowest ranked account ID
+      // because it has the highest-value account identifier due it being created after the claimants.
+      // Consequently, it will not receive anything during Round 4
+      BOOST_CHECK_EQUAL(get_balance(claimanta_id, core_id),
+                        0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 400/1000) + (4) + (0));
+      BOOST_CHECK_EQUAL(get_balance(claimantb_id, core_id),
+                        0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 300/1000) + (3) + (1));
+      BOOST_CHECK_EQUAL(get_balance(claimantc_id, core_id),
+                        0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 200/1000) + (2) + (1));
+      BOOST_CHECK_EQUAL(get_balance(claimantd_id, core_id),
+                        0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 100/1000) + (1) + (1));
+
+
+      ///
+      /// Trigger another royalty distribution event after the absence of any new royalty-collecting activities
+      ///
+      generate_blocks(db.get_dynamic_global_properties().next_maintenance_time);
+      generate_block();
+
+      /// Verify whether the reservoirs have been emptied
+      // Verify the implementation object for sub_asset_2
+      {
+         auto token_itr = token_name_idx.find(sub_asset_2_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify the implementation object for sub_asset_3
+      {
+         auto token_itr = token_name_idx.find(sub_asset_3_name);
+         BOOST_REQUIRE(token_itr != token_name_idx.end());
+         const nft_token_object &token_obj = *token_itr;
+         BOOST_CHECK(token_obj.royalty_reservoir == asset(0, core_id));
+      }
+
+      // Verify whether the Series royalty claimants have received their distribution
+      BOOST_CHECK_EQUAL(get_balance(creatora_id, core_id),
+                        creatora_init_balance_core.value + 0);
+      BOOST_CHECK_EQUAL(get_balance(claimanta_id, core_id),
+                        0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 400/1000) + (4) + (0));
+      BOOST_CHECK_EQUAL(get_balance(claimantb_id, core_id),
+                        0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 300/1000) + (3) + (1));
+      BOOST_CHECK_EQUAL(get_balance(claimantc_id, core_id),
+                        0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 200/1000) + (2) + (1));
+      BOOST_CHECK_EQUAL(get_balance(claimantd_id, core_id),
+                        0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 100/1000) + (1) + (1));
 
    } FC_LOG_AND_RETHROW()
 }
