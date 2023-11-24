@@ -140,5 +140,47 @@ namespace graphene {
       void apply_royalty_claim_transfer(database &db,
                                   const nft_pending_royalty_claim_transfer &rtx);
 
+
+      /**
+       * Calculate the royalty distribution.
+       * Function will sort the royalty claims as needed.
+       * @param amount Amount to distribute
+       * @param royalty_claims Unsorted royalty claims
+       * @return Mapping of accounts to allotment
+       */
+      std::map<account_id_type, share_type> calc_royalty_distribution(
+         const share_type& total_amount, const vector<nft_royalty_claim>& royalty_claims);
+
+      /**
+       * Calculate the royalty distribution.
+       * Function is speed-optimized for repeated use with pre-sorted lists of royalty claims.
+       * @param amount Amount to distribute
+       * @param sorted_claims_by_size_and_claimant Royalty claims sorted by claim size and claimant ID
+       * @param sorted_claims_by_claimant Royalty claims sorted by claimant ID only
+       * @return Mapping of accounts to allotment
+       * @see nft_royalty_claimsize_and_claimant_comparator()
+       * @see nft_royalty_claimant_comparator()
+       */
+      std::map<account_id_type, share_type> calc_royalty_distribution(
+         const share_type& total_amount,
+         const vector<nft_royalty_claim>& sorted_claims_by_size_and_claimant,
+         const vector<nft_royalty_claim>& sorted_claims_by_claimant);
+
+      /**
+       * Comparator of nft_royalty_claim based on (1) claim size and (2) claimant identifier
+       * @param ca  Claim A
+       * @param cb Claim B
+       * @return Whether claim A should precede Claim B
+       */
+      bool nft_royalty_claimsize_and_claimant_comparator(const nft_royalty_claim &ca, const nft_royalty_claim &cb);
+
+      /**
+       * Comparator of nft_royalty_claim based solely on claimant identifier
+       * @param ca  Claim A
+       * @param cb Claim B
+       * @return Whether claim A should precede Claim B
+       */
+      bool nft_royalty_claimant_comparator(const nft_royalty_claim &ca, const nft_royalty_claim &cb);
+
    } // namespace chain
 } // namespace graphene

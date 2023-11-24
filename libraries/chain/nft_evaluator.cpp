@@ -729,5 +729,177 @@ namespace graphene {
          });
       }
 
+      // Process the distribution as explained by the Concept Design
+      std::map<account_id_type, share_type> calc_royalty_distribution(
+         const share_type& total_amount, const vector<nft_royalty_claim>& unsorted_royalty_claims) {
+
+         // Sort the royalty-eligible claimants by (1) their claim size and then by (2) claimant identifier
+         vector<nft_royalty_claim> sorted_claims_by_size = unsorted_royalty_claims;
+         std::sort(sorted_claims_by_size.begin(), sorted_claims_by_size.end(), nft_royalty_claimsize_and_claimant_comparator);
+
+         // Sort the royalty-eligible claimants by their account ID
+         vector<nft_royalty_claim> sorted_claims_by_id = unsorted_royalty_claims;
+         std::sort(sorted_claims_by_id.begin(), sorted_claims_by_id.end(), nft_royalty_claimant_comparator);
+
+         return calc_royalty_distribution(total_amount, sorted_claims_by_size, sorted_claims_by_id);
+      }
+
+      bool nft_royalty_claimsize_and_claimant_comparator(const nft_royalty_claim &ca, const nft_royalty_claim &cb) {
+         // Priority #1: Sort by claim size in descending order
+         if (ca.claims != cb.claims) {
+            return ca.claims > cb.claims;
+         } else {
+            // Priority #2: If tied by claim size, sort by claimant ID in ascending order
+            return ca.claimant < cb.claimant;
+         }
+      }
+
+      bool nft_royalty_claimant_comparator(const nft_royalty_claim &ca, const nft_royalty_claim &cb) {
+         return ca.claimant < cb.claimant;
+      }
+
+      // Speed optimized process of the Secondary Royalty distribution aas explained by the Concept Design.
+      // It presumes that the claims have been pre-sorted for the different Rounds of the algorithm.
+      std::map<account_id_type, share_type> calc_royalty_distribution(const share_type& total_amount,
+                                                                      const vector<nft_royalty_claim>& sorted_claims_by_size,
+                                                                      const vector<nft_royalty_claim>& sorted_claims_by_id) {
+         FC_ASSERT(sorted_claims_by_size.size() == sorted_claims_by_id.size());
+
+         std::map<account_id_type, share_type> royalty_distribution;
+
+         if (sorted_claims_by_size.size() == 0) {
+            // Nothing to calculate
+            return royalty_distribution;
+         }
+
+         share_type qty_royalty_fees_remaining = total_amount;
+         share_type tally_total = 0;
+         vector<nft_royalty_claim> round_specific_claims;
+         bool prior_round_had_no_eligible_claimants = false; // Optimization
+         for (int round = 1; round <= 4; round++) {
+            if (round < 4) { // Round 1, 2, or 3
+               if (prior_round_had_no_eligible_claimants) {
+                  continue; // To next round; Optimization
+               }
+
+               // Update the round-specific claim size as explained by the Concept Design
+               round_specific_claims.clear();
+
+               share_type tally_round = 0;
+               // Step 1: Calculate the round-specific shares
+               share_type total_qty_round_specific_shares = 0;
+               for (nft_royalty_claim claim : sorted_claims_by_size) { // <- Obtain a copy of the claim to leave the original unmodified
+                  // Check whether, for some unexpected reason, there exists a claim of size 0
+                  if (claim.claims <= 0) {
+                     continue; // Skip. It should not receive any of the royalties.
+                  }
+
+                  // Update the distribution mappings for Rounds 2, 3, and 4
+                  if (round == 1) {
+                     // divisor = 1; // 10^(Round - 1) = 10^(0) = 1
+                     // No op: claim needs not adjustment because divisor = 1
+                  } else if (round == 2) {
+                     const share_type& divisor = 10; // 10^(Round - 1) = 10^(1) = 10
+                     claim.claims /= divisor;
+                  } else if (round == 3) {
+                     const share_type& divisor = 100; // 10^(Round - 1) = 10^(2) = 100
+                     claim.claims /= divisor;
+                  }
+
+                  // Ignore round-specific claims of 0
+                  if (claim.claims <= 0) {
+                     // Can ignore the claimant
+                     // Optimization: In fact, all subsequent claims should also be ignorable
+                     // because the list is already sorted by claim size.
+                     break; // There should be no additional claimants with claims worthy of being tracked
+                  }
+
+                  // Track round-specific claims
+                  round_specific_claims.emplace_back(claim);
+
+                  // Step 3: Quantity of all round-specific shares shall be summed
+                  total_qty_round_specific_shares += claim.claims;
+
+                  // Optimization: Utilize foreknowledge of Step 4.0 evaluation to break out of loop
+                  if (total_qty_round_specific_shares > qty_royalty_fees_remaining) {
+                     // There is no need to continue calculating round-specific shares
+                     // as the Step 4 loop will never be entered
+                     break;
+                  }
+               } // End of adjusting
+
+               // Step 2: If there are no round-eligible royalty accounts, skip Round
+               if (total_qty_round_specific_shares == 0) {
+                  // There are no more royalty-eligible claimants
+                  prior_round_had_no_eligible_claimants = true;  // Optimization
+                  continue; // Continue to next round
+               }
+
+               // Step 4.0: If `TotalQtyRoundSpecificShares` <= `QtyRoyaltyFeesRemaining`
+               while (total_qty_round_specific_shares <= qty_royalty_fees_remaining) {
+                  share_type tally_loop = 0;
+                  for (const nft_royalty_claim& claim : round_specific_claims) {
+                     // Step 4.2 Each royalty-eligible royalty account shall receive as many satoshi of the core token
+                     // to equal their round-specific shares
+                     royalty_distribution[claim.claimant] += claim.claims;
+                     tally_loop += claim.claims;
+                     tally_round += claim.claims;
+                  }
+                  FC_ASSERT(tally_loop == total_qty_round_specific_shares);
+
+                  // Step 4.3: The remaining quantity of royalty fees shall be updated
+                  qty_royalty_fees_remaining -= total_qty_round_specific_shares;
+               }
+               tally_total += tally_round;
+
+               // If the total tabulated for the Series matches the reservoir, break out of tabulation loop
+               if (tally_total == total_amount) {
+                  //  All royalties have been tabulated.  No further rounds are required.
+                  break; // Out of processing rounds
+               }
+
+            } else {
+               // Round 4
+
+               // Step 6. Sort the remaining royalty-eligible claimants by their account ID
+               // The work has already been performed by the caller of this function; no work is required here.
+
+               // Step 7. Allot to each claimant one satoshi at a time
+               share_type tally_round = 0;
+               while (qty_royalty_fees_remaining > 0) {
+                  for (const nft_royalty_claim& claim : sorted_claims_by_id) {
+                     // Check whether, for some unexpected reason, there exists a claim of size 0
+                     if (claim.claims <= 0) {
+                        continue; // Skip. It should not receive any of the royalties
+                     }
+
+                     // Deduct 1 from the remaining fees
+                     qty_royalty_fees_remaining--;
+                     // Add 1 to the claimant
+                     royalty_distribution[claim.claimant] += 1;
+
+                     // For internal validation
+                     tally_round++;
+
+                     if (qty_royalty_fees_remaining == 0) {
+                        break; // No additional work is required
+                     }
+                  }
+
+                  // Safety-check to avoid possibly infinite loops arising from unexpected non-positive claims
+                  if (tally_round == 0) {
+                     break; // No valid claimants were found
+                  }
+               }
+
+               tally_total += tally_round;
+            } // End of Round 4
+
+         } // Looping through Rounds
+
+         FC_ASSERT( tally_total <= total_amount);
+         return royalty_distribution;
+      }
+
    } // namespace chain
 } // namespace graphene
