@@ -780,6 +780,146 @@ void create_buyback_orders( database& db )
    return;
 }
 
+/**
+ * Distribute NFT Secondary Royalties
+ * @param db Database
+ */
+void distribute_nft_royalties( database& db ) {
+   const fc::time_point_sec &now = db.head_block_time();
+   if (!HARDFORK_NFT_M3_PASSED(now)) {
+       return;
+    }
+
+    // Loop through all NFT Series
+    const auto &series_idx = db.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+    for (auto series_itr = series_idx.begin(); series_itr != series_idx.end(); series_itr++) {
+       const nft_series_object &series_obj = *series_itr;
+       // Create a mapping between claimant and distribution
+       vector<nft_royalty_claim> sorted_royalty_claims_by_size_and_claimant;
+       vector<nft_royalty_claim> sorted_royalty_claims_by_claimant;
+       for (auto claimants_itr = series_obj.royalty_claims.begin();
+            claimants_itr != series_obj.royalty_claims.end();
+            claimants_itr++) {
+          account_id_type claimant = claimants_itr->first;
+          share_type claim_size = claimants_itr->second;
+          nft_royalty_claim claim{claimant, claim_size};
+          sorted_royalty_claims_by_size_and_claimant.emplace_back(claim);
+          sorted_royalty_claims_by_claimant.emplace_back(claim);
+       }
+
+       // If there are no claimants, skip to next Series
+       if (sorted_royalty_claims_by_size_and_claimant.empty()) {
+          continue; // Skip
+       }
+
+       // Sort the mappings
+       std::sort(sorted_royalty_claims_by_size_and_claimant.begin(), sorted_royalty_claims_by_size_and_claimant.end(),
+                 nft_royalty_claimsize_and_claimant_comparator);
+
+       std::sort(sorted_royalty_claims_by_claimant.begin(), sorted_royalty_claims_by_claimant.end(),
+                 nft_royalty_claimant_comparator);
+
+       // Optimization
+       // A Series could, in theory, contain NFTs whose reservoir is denominated
+       // in different asset IDs.
+       // The consequence is that every NFT royalty claimant could **potentially** be receiving
+       // royalties in numerous asset ID types.
+       // To accommodate all possibilities, every recipient may receive balances in multiple denominations.
+       std::map<account_id_type, std::map<asset_id_type, share_type>> pending_distribution_from_series;
+
+       ///
+       /// Loop through the Series' NFTs
+       ///
+       const auto &token_idx = db.get_index_type<nft_token_index>().indices().get<by_nft_token_series_id>();
+       for (auto token_itr = token_idx.find(series_obj.asset_id);
+            token_itr != token_idx.end() && token_itr->series_id == series_obj.asset_id;
+            token_itr++) {
+          const nft_token_object &token = *token_itr;
+          // If token reservoir is empty, skip to next token
+          const share_type reservoir_total = token.royalty_reservoir.amount;
+          if (reservoir_total == 0) {
+             continue; // Skip to next series
+          }
+          const asset_id_type& reservoir_type = token.royalty_reservoir.asset_id;
+
+          // Calculate the distribution
+          std::map<account_id_type, share_type> pending_distribution_from_token =
+             calc_royalty_distribution(reservoir_total,
+                                       sorted_royalty_claims_by_size_and_claimant,
+                                       sorted_royalty_claims_by_claimant);
+
+          // Loop through mappings
+          share_type total_allotment_for_token = 0;
+          for (std::map<account_id_type, share_type>::iterator itr = pending_distribution_from_token.begin();
+               itr != pending_distribution_from_token.end();
+               itr++) {
+             const account_id_type& recipient = itr->first;
+             const share_type& royalty_qty = itr->second;
+             if (royalty_qty <= 0) {
+                // Should not occur
+                wdump(("A negative allotment of royalty distribution was detected which should not occur.  Rejecting:")
+                      (recipient)(royalty_qty));
+                continue;
+             }
+
+             // Rather than distribute from the reservoir to the account balances
+             // within this loop, delay and distribute after all tokens
+             // within the Series have been calculated.
+             // The motivation for the delay is to aggregate the royalty distribution,
+             // which consists of both a deduction from each NFT's reservoir
+             // and an addition to the recipient's balances,
+             // to reduce the quantity of database modifications.
+
+             // Optimization: Track the total amount for subsequent deduction
+             total_allotment_for_token += royalty_qty;
+
+             // Optimization: Delay adding to the recipient's balance
+             auto itrPendingSeries = pending_distribution_from_series.find(recipient);
+             if (itrPendingSeries == pending_distribution_from_series.end()) {
+                std::map<asset_id_type, share_type> newMap;
+                newMap[reservoir_type] = royalty_qty;
+                pending_distribution_from_series[recipient] = newMap;
+
+             } else {
+                std::map<asset_id_type, share_type>& existingMap = itrPendingSeries->second;
+                auto itrAssetIDToQty = existingMap.find(reservoir_type);
+                if (itrAssetIDToQty == existingMap.end()) {
+                   existingMap[reservoir_type] = royalty_qty;
+                } else {
+                   existingMap[reservoir_type] += royalty_qty;
+                }
+             }
+
+          } // Looping through the calculated distribution for a particular NFT
+
+          // Optimization: Deduct from the token's reservoir in a single step
+          db.modify(token, [&total_allotment_for_token](nft_token_object& data) {
+             data.royalty_reservoir.amount -= total_allotment_for_token;
+          });
+
+       } // Looping through NFTs in an NFT Series
+
+       // Optimization: Add to the recipients's balances those pre-calculated royalties from all NFTs in the Series
+       for (std::map<account_id_type, std::map<asset_id_type, share_type>>::iterator itrRecipients = pending_distribution_from_series.begin();
+            itrRecipients != pending_distribution_from_series.end();
+            itrRecipients++) {
+
+          const account_id_type& recipient = itrRecipients->first;
+
+          std::map<asset_id_type, share_type> mapAssetsToQty = itrRecipients->second;
+          for (std::map<asset_id_type, share_type>::iterator itrRecipientsAssets = mapAssetsToQty.begin();
+               itrRecipientsAssets != mapAssetsToQty.end();
+               itrRecipientsAssets++) {
+             const asset_id_type& royalty_type = itrRecipientsAssets->first;
+             const share_type& royalty_qty = itrRecipientsAssets->second;
+             idump(("Adjusting")(recipient)(royalty_type)(royalty_qty));
+             db.adjust_balance(recipient, asset(royalty_qty, royalty_type));
+          }
+       } // Looping through pending distribution from NFT Series
+
+    } // Looping through NFT Series
+}
+
 void deprecate_annual_members( database& db )
 {
    const auto& account_idx = db.get_index_type<account_index>().indices().get<by_id>();
@@ -1205,6 +1345,7 @@ void database::perform_chain_maintenance(const signed_block& next_block, const g
 
    distribute_fba_balances(*this);
    create_buyback_orders(*this);
+   distribute_nft_royalties(*this);
 
    struct vote_tally_helper {
       database& d;
