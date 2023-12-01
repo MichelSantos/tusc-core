@@ -368,6 +368,10 @@ struct get_impacted_account_visitor
    {
       _impacted.insert( op.fee_payer() );
    }
+   void operator()( const nft_royalty_distributed_operation& op )
+   {
+      _impacted.insert( op.fee_payer() );
+   }
 };
 
 } // namespace detail

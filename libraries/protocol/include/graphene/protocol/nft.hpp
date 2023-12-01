@@ -253,6 +253,31 @@ namespace graphene {
          asset fee;
       };
 
+      struct nft_royalty_distributed_operation : public base_operation {
+         struct fee_parameters_type {
+         };
+
+         nft_royalty_distributed_operation() {}
+         nft_royalty_distributed_operation( asset_id_type series_id, asset royalty, account_id_type recipient )
+            : series_asset_id(series_id), royalty_distribution(royalty), recipient(recipient) {}
+
+         account_id_type fee_payer() const { return recipient; }
+
+         void validate() const { FC_ASSERT(!"virtual operation"); }
+
+         share_type calculate_fee(const fee_parameters_type &k) const { return 0; }
+
+         /// Asset ID of the NFT Series
+         asset_id_type series_asset_id;
+
+         /// Royalty amount
+         asset royalty_distribution;
+
+         /// Royalty recipient
+         account_id_type recipient;
+
+         asset fee;
+      };
    }
 }
 
@@ -297,6 +322,10 @@ FC_REFLECT( graphene::protocol::nft_royalty_paid_operation::fee_parameters_type,
 FC_REFLECT( graphene::protocol::nft_royalty_paid_operation,
 (fee)(tx_amount)(royalty)(payer))
 
+FC_REFLECT( graphene::protocol::nft_royalty_distributed_operation::fee_parameters_type, ) // VIRTUAL
+FC_REFLECT( graphene::protocol::nft_royalty_distributed_operation,
+(fee)(series_asset_id)(royalty_distribution)(recipient))
+
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation::fee_parameters_type )
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_series_create_operation )
 
@@ -315,3 +344,5 @@ GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation:
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_burn_operation )
 
 GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_royalty_paid_operation )
+
+GRAPHENE_DECLARE_EXTERNAL_SERIALIZATION( graphene::protocol::nft_royalty_distributed_operation )
