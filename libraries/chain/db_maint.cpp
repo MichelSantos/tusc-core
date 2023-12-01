@@ -912,8 +912,12 @@ void distribute_nft_royalties( database& db ) {
                itrRecipientsAssets++) {
              const asset_id_type& royalty_type = itrRecipientsAssets->first;
              const share_type& royalty_qty = itrRecipientsAssets->second;
-             idump(("Adjusting")(recipient)(royalty_type)(royalty_qty));
-             db.adjust_balance(recipient, asset(royalty_qty, royalty_type));
+             const asset royalty(royalty_qty, royalty_type);
+             db.adjust_balance(recipient, royalty);
+
+             // Record the distribution in the account's history with a virtual operation
+             nft_royalty_distributed_operation vop(series_obj.asset_id, royalty, recipient);
+             db.push_applied_operation(vop);
           }
        } // Looping through pending distribution from NFT Series
 
