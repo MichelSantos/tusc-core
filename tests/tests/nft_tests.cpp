@@ -6628,6 +6628,9 @@ BOOST_AUTO_TEST_CASE(nft_calc_royalty_distribution_nft_2ndXfer_royalty_distribut
  */
 BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_distribution_d1_4claimants) {
    try {
+      // Activate the account history plugin
+      graphene::app::history_api hist_api(app);
+
       INVOKE(nft_2ndXfer_royalty_collection_d);
 
       // Initialize
@@ -6760,6 +6763,150 @@ BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_distribution_d1_4claimants) {
                         0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 200/1000) + (2) + (1));
       BOOST_CHECK_EQUAL(get_balance(claimantd_id, core_id),
                         0 + (150 * GRAPHENE_BLOCKCHAIN_PRECISION * 100/1000) + (1) + (1));
+
+
+      ///
+      /// Inspect account history of Claimant A
+      ///
+      vector <operation_history_object> histories;
+      int count;
+      operation op;
+
+      histories = hist_api.get_account_history("claimanta");
+      count = histories.size();
+      // Claimant A's history in this scenario should include:
+      // 1 Creation of account
+      // 1 receipt of royalty claim by regular transfer
+      // 1 NFT Royalty Distribution
+      BOOST_CHECK_EQUAL(count, 3);
+
+      // Account histories are sorted in decreasing time order
+      // The first operation should correspond to the NFT Royalty Distribution
+      op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<nft_royalty_distributed_operation>());
+      nft_royalty_distributed_operation roy_op = op.get<nft_royalty_distributed_operation>();
+      BOOST_CHECK(roy_op.series_asset_id == series_id);
+      BOOST_CHECK(roy_op.royalty_distribution
+                  == asset((150 * GRAPHENE_BLOCKCHAIN_PRECISION * 400/1000) + (4) + (0), core_id) );
+      BOOST_CHECK(roy_op.recipient == claimanta_id);
+
+      // The next operation should correspond to the account's receipt of royalty claims
+      op = histories[1].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      transfer_operation tx_op = op.get<transfer_operation>();
+      BOOST_CHECK(tx_op.to == claimanta_id);
+      BOOST_CHECK(tx_op.amount == asset(400, series_id));
+
+      // The next operation should correspond to the account creation
+      op = histories[2].op;
+      BOOST_REQUIRE(op.is_type<account_create_operation>());
+      account_create_operation ac_op = op.get<account_create_operation>();
+      BOOST_CHECK_EQUAL(ac_op.name, "claimanta");
+
+      ///
+      /// Inspect account history of Claimant B
+      ///
+      histories = hist_api.get_account_history("claimantb");
+      count = histories.size();
+      // Claimant B's history in this scenario should include:
+      // 1 Creation of account
+      // 1 receipt of royalty claim by regular transfer
+      // 1 NFT Royalty Distribution
+      BOOST_CHECK_EQUAL(count, 3);
+
+      // Account histories are sorted in decreasing time order
+      // The first operation should correspond to the NFT Royalty Distribution
+      op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<nft_royalty_distributed_operation>());
+      roy_op = op.get<nft_royalty_distributed_operation>();
+      BOOST_CHECK(roy_op.series_asset_id == series_id);
+      BOOST_CHECK(roy_op.royalty_distribution
+                  == asset((150 * GRAPHENE_BLOCKCHAIN_PRECISION * 300/1000) + (3) + (1), core_id) );
+      BOOST_CHECK(roy_op.recipient == claimantb_id);
+
+      // The next operation should correspond to the account's receipt of royalty claims
+      op = histories[1].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      tx_op = op.get<transfer_operation>();
+      BOOST_CHECK(tx_op.to == claimantb_id);
+      BOOST_CHECK(tx_op.amount == asset(300, series_id));
+
+      // The next operation should correspond to the account creation
+      op = histories[2].op;
+      BOOST_REQUIRE(op.is_type<account_create_operation>());
+      ac_op = op.get<account_create_operation>();
+      BOOST_CHECK_EQUAL(ac_op.name, "claimantb");
+
+      ///
+      /// Inspect account history of Claimant C
+      ///
+      histories = hist_api.get_account_history("claimantc");
+      count = histories.size();
+
+      // Claimant C's history in this scenario should include:
+      // 1 Creation of account
+      // 1 receipt of royalty claim by regular transfer
+      // 1 NFT Royalty Distribution
+      BOOST_CHECK_EQUAL(count, 3);
+
+      // Account histories are sorted in decreasing time order
+      // The first operation should correspond to the NFT Royalty Distribution
+      op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<nft_royalty_distributed_operation>());
+      roy_op = op.get<nft_royalty_distributed_operation>();
+      BOOST_CHECK(roy_op.series_asset_id == series_id);
+      BOOST_CHECK(roy_op.royalty_distribution
+                  == asset((150 * GRAPHENE_BLOCKCHAIN_PRECISION * 200/1000) + (2) + (1), core_id) );
+      BOOST_CHECK(roy_op.recipient == claimantc_id);
+
+      // The next operation should correspond to the account's receipt of royalty claims
+      op = histories[1].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      tx_op = op.get<transfer_operation>();
+      BOOST_CHECK(tx_op.to == claimantc_id);
+      BOOST_CHECK(tx_op.amount == asset(200, series_id));
+
+      // The next operation should correspond to the account creation
+      op = histories[2].op;
+      BOOST_REQUIRE(op.is_type<account_create_operation>());
+      ac_op = op.get<account_create_operation>();
+      BOOST_CHECK_EQUAL(ac_op.name, "claimantc");
+
+
+      ///
+      /// Inspect account history of Claimant D
+      ///
+      histories = hist_api.get_account_history("claimantd");
+      count = histories.size();
+
+      // Claimant D's history in this scenario should include:
+      // 1 Creation of account
+      // 1 receipt of royalty claim by regular transfer
+      // 1 NFT Royalty Distribution
+      BOOST_CHECK_EQUAL(count, 3);
+
+      // Account histories are sorted in decreasing time order
+      // The first operation should correspond to the NFT Royalty Distribution
+      op = histories[0].op;
+      BOOST_REQUIRE(op.is_type<nft_royalty_distributed_operation>());
+      roy_op = op.get<nft_royalty_distributed_operation>();
+      BOOST_CHECK(roy_op.series_asset_id == series_id);
+      BOOST_CHECK(roy_op.royalty_distribution
+                  == asset((150 * GRAPHENE_BLOCKCHAIN_PRECISION * 100/1000) + (1) + (1), core_id) );
+      BOOST_CHECK(roy_op.recipient == claimantd_id);
+
+      // The next operation should correspond to the account's receipt of royalty claims
+      op = histories[1].op;
+      BOOST_REQUIRE(op.is_type<transfer_operation>());
+      tx_op = op.get<transfer_operation>();
+      BOOST_CHECK(tx_op.to == claimantd_id);
+      BOOST_CHECK(tx_op.amount == asset(100, series_id));
+
+      // The next operation should correspond to the account creation
+      op = histories[2].op;
+      BOOST_REQUIRE(op.is_type<account_create_operation>());
+      ac_op = op.get<account_create_operation>();
+      BOOST_CHECK_EQUAL(ac_op.name, "claimantd");
 
    } FC_LOG_AND_RETHROW()
 }
