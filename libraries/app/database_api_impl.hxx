@@ -257,6 +257,8 @@ class database_api_impl : public std::enable_shared_from_this<database_api_impl>
                                                           optional<uint32_t> limit = 101,
                                                           optional<nft_token_id_type> start_id = optional<nft_token_id_type>()) const;
 
+      std::map<account_id_type, share_type> get_claimants_by_series(const std::string& asset_name_or_id) const;
+
    //private:
 
       ////////////////////////////////////////////////

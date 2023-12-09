@@ -1167,6 +1167,12 @@ class database_api
                                                        optional<uint32_t> limit = 101,
                                                        optional<nft_token_id_type> start_id = optional<nft_token_id_type>()) const;
 
+   /**
+    * @brief Get a mapping between royalty claimants and their claim size by NFT Series
+    * @return The mapping
+    */
+   std::map<account_id_type, share_type> get_claimants_by_series(const std::string& asset_name_or_id) const;
+
 private:
       std::shared_ptr< database_api_impl > my;
 };
@@ -1315,4 +1321,5 @@ FC_API(graphene::app::database_api,
    (list_series)
    (get_token_by_asset)
    (list_tokens_by_series_name)
+   (get_claimants_by_series)
 )

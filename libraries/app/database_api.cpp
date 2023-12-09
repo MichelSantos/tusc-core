@@ -3122,6 +3122,27 @@ vector<nft_token_object> database_api_impl::list_tokens_by_series_name(
    return results;
 }
 
+std::map<account_id_type, share_type> database_api::get_claimants_by_series(const std::string& asset_name_or_id) const {
+   return my->get_claimants_by_series(asset_name_or_id);
+}
+
+
+std::map<account_id_type, share_type> database_api_impl::get_claimants_by_series(const std::string& asset_name_or_id) const {
+   const asset_object* asset = get_asset_from_string(asset_name_or_id, false);
+   if (asset == nullptr) {
+      return std::map<account_id_type, share_type>();
+   }
+   const asset_id_type& asset_id = asset->id;
+
+   const auto &series_id_idx = _db.get_index_type<nft_series_index>().indices().get<by_nft_series_asset_id>();
+   auto series_itr = series_id_idx.find(asset_id);
+   if (series_itr == series_id_idx.end()) {
+      return std::map<account_id_type, share_type>();
+   }
+
+   const nft_series_object& series_obj = *series_itr;
+   return series_obj.royalty_claims; // Return a copy of the mapping
+}
 
 //////////////////////////////////////////////////////////////////////
 //                                                                  //

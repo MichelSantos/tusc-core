@@ -6631,6 +6631,9 @@ BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_distribution_d1_4claimants) {
       // Activate the account history plugin
       graphene::app::history_api hist_api(app);
 
+      // Activate the database API
+      graphene::app::database_api db_api(db, &(this->app.get_options()));
+
       INVOKE(nft_2ndXfer_royalty_collection_d);
 
       // Initialize
@@ -6907,6 +6910,67 @@ BOOST_AUTO_TEST_CASE(nft_2ndXfer_royalty_distribution_d1_4claimants) {
       BOOST_REQUIRE(op.is_type<account_create_operation>());
       ac_op = op.get<account_create_operation>();
       BOOST_CHECK_EQUAL(ac_op.name, "claimantd");
+
+      // Query the royalty claim distribution
+      BOOST_TEST_MESSAGE("Querying the database API by Series/Asset name");
+      {
+         // Search by series name
+         map<account_id_type, share_type> royalty_claims = db_api.get_claimants_by_series(series_name);
+         BOOST_CHECK_EQUAL(royalty_claims.size(), 4);
+
+         auto itr = royalty_claims.find(claimanta_id);
+         BOOST_REQUIRE(itr != royalty_claims.end());
+         BOOST_CHECK_EQUAL(itr->second.value, 400);
+
+         itr = royalty_claims.find(claimantb_id);
+         BOOST_REQUIRE(itr != royalty_claims.end());
+         BOOST_CHECK_EQUAL(itr->second.value, 300);
+
+         itr = royalty_claims.find(claimantc_id);
+         BOOST_REQUIRE(itr != royalty_claims.end());
+         BOOST_CHECK_EQUAL(itr->second.value, 200);
+
+         itr = royalty_claims.find(claimantd_id);
+         BOOST_REQUIRE(itr != royalty_claims.end());
+         BOOST_CHECK_EQUAL(itr->second.value, 100);
+
+         const account_id_type invalid_account_id(9999999); // Non-existent account
+         itr = royalty_claims.find(invalid_account_id);
+         BOOST_REQUIRE(itr == royalty_claims.end());
+      }
+
+      {
+         // Search by series ID
+         const asset_id_type& series_id = get_asset(series_name).id;
+         map<account_id_type, share_type> royalty_claims = db_api.get_claimants_by_series(asset_id_to_string(series_id));
+         BOOST_CHECK_EQUAL(royalty_claims.size(), 4);
+
+         auto itr = royalty_claims.find(claimanta_id);
+         BOOST_REQUIRE(itr != royalty_claims.end());
+         BOOST_CHECK_EQUAL(itr->second.value, 400);
+
+         itr = royalty_claims.find(claimantb_id);
+         BOOST_REQUIRE(itr != royalty_claims.end());
+         BOOST_CHECK_EQUAL(itr->second.value, 300);
+
+         itr = royalty_claims.find(claimantc_id);
+         BOOST_REQUIRE(itr != royalty_claims.end());
+         BOOST_CHECK_EQUAL(itr->second.value, 200);
+
+         itr = royalty_claims.find(claimantd_id);
+         BOOST_REQUIRE(itr != royalty_claims.end());
+         BOOST_CHECK_EQUAL(itr->second.value, 100);
+
+         const account_id_type invalid_account_id(9999999); // Non-existent account
+         itr = royalty_claims.find(invalid_account_id);
+         BOOST_REQUIRE(itr == royalty_claims.end());
+      }
+
+      {
+         // Check a non-existing series
+         map<account_id_type, share_type> royalty_claims = db_api.get_claimants_by_series("NONEXISTENT");
+         BOOST_CHECK_EQUAL(royalty_claims.size(), 0);
+      }
 
    } FC_LOG_AND_RETHROW()
 }
