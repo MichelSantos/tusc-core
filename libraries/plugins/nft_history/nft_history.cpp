@@ -54,13 +54,13 @@ namespace graphene {
             vector<asset> get_royalty_reservoir_by_series(const string series_name,
                                                           bool throw_if_not_found = true) const;
 
-            vector <asset> get_royalties_by_series(const asset_id_type series_asset_id,
-                                                   const fc::time_point_sec start,
-                                                   const fc::time_point_sec end) const;
+            vector <asset> get_royalties_collected_by_series(const asset_id_type series_asset_id,
+                                                             const fc::time_point_sec start,
+                                                             const fc::time_point_sec end) const;
 
-            vector <asset> get_royalties_by_series(const string series_name,
-                                                   const fc::time_point_sec start,
-                                                   const fc::time_point_sec end) const;
+            vector <asset> get_royalties_collected_by_series(const string series_name,
+                                                             const fc::time_point_sec start,
+                                                             const fc::time_point_sec end) const;
 
             asset get_royalties_collected_by_token(const asset_id_type token_id,
                                                    const fc::time_point_sec start,
@@ -72,6 +72,21 @@ namespace graphene {
 
             const asset_id_type get_parent_series(const graphene::chain::database& db,
                                                   const asset_id_type& nft_asset_id) const;
+
+            vector <asset> get_royalties_distributed_by_series(const asset_id_type series_asset_id,
+                                                               const fc::time_point_sec start,
+                                                               const fc::time_point_sec end) const;
+
+            vector <asset> get_royalties_distributed_by_series(const string series_name,
+                                                               const fc::time_point_sec start,
+                                                               const fc::time_point_sec end) const;
+
+            vector <nft_royalty_distributed_object> get_royalties_distributed_details_by_series(
+               const asset_id_type series_asset_id, const fc::time_point_sec start, const fc::time_point_sec end) const;
+
+            vector <nft_royalty_distributed_object> get_royalties_distributed_details_by_series(
+               const string series_name, const fc::time_point_sec start, const fc::time_point_sec end) const;
+
          private:
             nft_history &_self;
 
@@ -112,11 +127,21 @@ namespace graphene {
 
                const fc::time_point_sec block_time = _now;
                const asset_id_type series_id = _impl.get_parent_series(d, token_id);
-               d.create<nft_royalty_object>( [block_time, series_id, token_id, &op]( nft_royalty_object& ro ) {
+               d.create<nft_royalty_collected_object>( [block_time, series_id, token_id, &op]( nft_royalty_collected_object& ro ) {
                   ro.timestamp = block_time;
                   ro.series_asset_id = series_id;
                   ro.token_asset_id = token_id;
                   ro.royalty = op.royalty;
+               });
+            }
+
+            void operator()( const nft_royalty_distributed_operation& op ) const {
+               const fc::time_point_sec block_time = _now;
+               d.create<nft_royalty_distributed_object>( [block_time, &op]( nft_royalty_distributed_object& ro ) {
+                  ro.timestamp = block_time;
+                  ro.series_asset_id = op.series_asset_id;
+                  ro.recipient = op.recipient;
+                  ro.royalty_distributed = op.royalty_distribution;
                });
             }
          };
@@ -264,18 +289,18 @@ namespace graphene {
             return royalties;
          }
 
-         vector <asset> nft_history_impl::get_royalties_by_series(const string series_name,
-                                                                  const fc::time_point_sec start,
-                                                                  const fc::time_point_sec end) const {
+         vector <asset> nft_history_impl::get_royalties_collected_by_series(const string series_name,
+                                                                            const fc::time_point_sec start,
+                                                                            const fc::time_point_sec end) const {
             graphene::chain::database &db = database();
             const asset_id_type series_asset_id = get_asset_from_string(db, series_name, true)->id;
 
-            return get_royalties_by_series(series_asset_id, start, end);
+            return get_royalties_collected_by_series(series_asset_id, start, end);
          }
 
-         vector <asset> nft_history_impl::get_royalties_by_series(const asset_id_type series_asset_id,
-                                                                  const fc::time_point_sec start,
-                                                                  const fc::time_point_sec end) const {
+         vector <asset> nft_history_impl::get_royalties_collected_by_series(const asset_id_type series_asset_id,
+                                                                            const fc::time_point_sec start,
+                                                                            const fc::time_point_sec end) const {
             graphene::chain::database &db = database();
 
             const auto& royalty_idx = db.get_index_type<nft_royalty_index>();
@@ -345,6 +370,77 @@ namespace graphene {
             return asset(cumulative, royalty_type);
          }
 
+         vector <asset> nft_history_impl::get_royalties_distributed_by_series(const string series_name,
+                                                                              const fc::time_point_sec start,
+                                                                              const fc::time_point_sec end) const {
+            graphene::chain::database &db = database();
+            const asset_id_type series_asset_id = get_asset_from_string(db, series_name, true)->id;
+
+            return get_royalties_distributed_by_series(series_asset_id, start, end);
+         }
+
+         vector <asset> nft_history_impl::get_royalties_distributed_by_series(const asset_id_type series_asset_id,
+                                                                              const fc::time_point_sec start,
+                                                                              const fc::time_point_sec end) const {
+            graphene::chain::database &db = database();
+
+            const auto& royalty_idx = db.get_index_type<nft_royalty_distributed_index>();
+            const auto& royalty_time_idx = royalty_idx.indices().get<by_nft_series_timestamp>();
+
+            // Loop through timespan
+            std::map<asset_id_type, share_type> mapAssetIDToAsset;
+            auto itr = royalty_time_idx.lower_bound(std::make_tuple(series_asset_id, start));
+            while( itr != royalty_time_idx.end() && itr->series_asset_id == series_asset_id && itr->timestamp < end) {
+               const asset& royalty = itr->royalty_distributed;
+               if (mapAssetIDToAsset.find(royalty.asset_id) != mapAssetIDToAsset.end()) {
+                  mapAssetIDToAsset[royalty.asset_id] += royalty.amount;
+               } else {
+                  mapAssetIDToAsset[royalty.asset_id] = royalty.amount;
+               }
+
+               ++itr;
+            }
+
+            // Organize output
+            vector<asset> royalties;
+            std::map<asset_id_type, share_type>::iterator it = mapAssetIDToAsset.begin();
+            while (it != mapAssetIDToAsset.end()) {
+               asset a(it->second, it->first);
+               royalties.emplace_back(a);
+               it++;
+            }
+
+            return royalties;
+         }
+
+         vector <nft_royalty_distributed_object> nft_history_impl::get_royalties_distributed_details_by_series(
+            const string series_name, const fc::time_point_sec start, const fc::time_point_sec end) const {
+            const graphene::chain::database &db = database();
+            const asset_id_type series_asset_id = get_asset_from_string(db, series_name, true)->id;
+
+            return get_royalties_distributed_details_by_series(series_asset_id, start, end);
+         }
+
+         vector <nft_royalty_distributed_object> nft_history_impl::get_royalties_distributed_details_by_series(
+            const asset_id_type series_asset_id, const fc::time_point_sec start, const fc::time_point_sec end) const {
+            const graphene::chain::database &db = database();
+
+            const auto& royalty_idx = db.get_index_type<nft_royalty_distributed_index>();
+            const auto& royalty_time_idx = royalty_idx.indices().get<by_nft_series_timestamp>();
+
+            // Loop through timespan
+            vector<nft_royalty_distributed_object> distributions;
+            auto itr = royalty_time_idx.lower_bound(std::make_tuple(series_asset_id, start));
+            while( itr != royalty_time_idx.end() && itr->series_asset_id == series_asset_id && itr->timestamp < end) {
+               const nft_royalty_distributed_object obj = *itr;
+               distributions.emplace_back(obj);
+
+               ++itr;
+            }
+
+            return distributions;
+         }
+
       } // end namespace detail
 
       nft_history::nft_history(graphene::app::application &app) :
@@ -380,6 +476,7 @@ namespace graphene {
          });
 
          database().add_index< primary_index< nft_royalty_index > >();
+         database().add_index< primary_index< nft_royalty_distributed_index > >();
 
          if (options.count("nft_history") > 0) {
             my->_plugin_option = options["nft_history"].as<std::string>();
@@ -415,16 +512,16 @@ namespace graphene {
          return my->get_royalty_reservoir_by_series(series_name, throw_if_not_found);
       }
 
-      vector <asset> nft_history::get_royalties_by_series(const asset_id_type series_asset_id,
-                                                          const fc::time_point_sec start,
-                                                          const fc::time_point_sec end) const {
-         return my->get_royalties_by_series(series_asset_id, start, end);
+      vector <asset> nft_history::get_royalties_collected_by_series(const asset_id_type series_asset_id,
+                                                                    const fc::time_point_sec start,
+                                                                    const fc::time_point_sec end) const {
+         return my->get_royalties_collected_by_series(series_asset_id, start, end);
       }
 
-      vector <asset> nft_history::get_royalties_by_series(const string series_name,
-                                                          const fc::time_point_sec start,
-                                                          const fc::time_point_sec end) const {
-         return my->get_royalties_by_series(series_name, start, end);
+      vector <asset> nft_history::get_royalties_collected_by_series(const string series_name,
+                                                                    const fc::time_point_sec start,
+                                                                    const fc::time_point_sec end) const {
+         return my->get_royalties_collected_by_series(series_name, start, end);
       }
 
       asset nft_history::get_royalties_collected_by_token(const asset_id_type token_id,
@@ -437,6 +534,28 @@ namespace graphene {
                                                           const fc::time_point_sec start,
                                                           const fc::time_point_sec end) const {
          return my->get_royalties_collected_by_token(token_name, start, end);
+      }
+
+      vector <asset> nft_history::get_royalties_distributed_by_series(const asset_id_type series_asset_id,
+                                                                      const fc::time_point_sec start,
+                                                                      const fc::time_point_sec end) const {
+         return my->get_royalties_distributed_by_series(series_asset_id, start, end);
+      }
+
+      vector <asset> nft_history::get_royalties_distributed_by_series(const string series_name,
+                                                                      const fc::time_point_sec start,
+                                                                      const fc::time_point_sec end) const {
+         return my->get_royalties_distributed_by_series(series_name, start, end);
+      }
+
+      vector<nft_royalty_distributed_object> nft_history::get_royalties_distributed_details_by_series(
+         const asset_id_type series_asset_id, const fc::time_point_sec start, const fc::time_point_sec end) const {
+         return my->get_royalties_distributed_details_by_series(series_asset_id, start, end);
+      }
+
+      vector<nft_royalty_distributed_object> nft_history::get_royalties_distributed_details_by_series(
+         const string series_name, const fc::time_point_sec start, const fc::time_point_sec end) const {
+         return my->get_royalties_distributed_details_by_series(series_name, start, end);
       }
    }
 }
