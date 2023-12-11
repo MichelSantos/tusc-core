@@ -647,14 +647,35 @@ namespace graphene { namespace app {
 
          /**
           * @brief Get the royalties collected for an NFT token across a timespan
+          * @param series_name_or_asset_id NFT Series name or asset ID
+          * @param start Start time (inclusive)
+          * @param end End time (exclusive)
+          * @return Total royalties paid grouped by asset ID of royalty
+          */
+         vector <asset> get_royalties_collected_by_series(const std::string series_name_or_asset_id,
+                                                          const fc::time_point_sec start,
+                                                          const fc::time_point_sec end) const;
+
+         /**
+          * @brief Get the royalties distributed for an NFT token across a timespan
           * @param series_name_or_aseet_id NFT Series name or asset ID
           * @param start Start time (inclusive)
           * @param end End time (exclusive)
           * @return Cumulative distributed royalties grouped by asset ID of royalty
           */
-         vector <asset> get_royalties_by_series(const std::string series_name_or_aseet_id,
-                                                const fc::time_point_sec start,
-                                                const fc::time_point_sec end) const;
+         vector <asset> get_royalties_distributed_by_series(const std::string series_name_or_asset_id,
+                                                            const fc::time_point_sec start,
+                                                            const fc::time_point_sec end) const;
+
+         /**
+          * @brief Get the royalties distributed for an NFT token across a timespan
+          * @param series_name_or_aseet_id NFT Series name or asset ID
+          * @param start Start time (inclusive)
+          * @param end End time (exclusive)
+          * @return All distributed royalties grouped by asset ID of royalty
+          */
+         vector <graphene::nft_history::nft_royalty_distributed_object> get_royalties_distributed_details_by_series(
+            const std::string series_name_or_asset_id, const fc::time_point_sec start, const fc::time_point_sec end) const;
 
       private:
          application &_app;
@@ -824,5 +845,7 @@ FC_API(graphene::app::nft_history_api,
    (get_royalty_reservoir_by_token)
    (get_royalty_reservoir_by_series)
    (get_royalties_collected_by_token)
-   (get_royalties_by_series)
+   (get_royalties_collected_by_series)
+   (get_royalties_distributed_by_series)
+   (get_royalties_distributed_details_by_series)
 )

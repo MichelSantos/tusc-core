@@ -916,15 +916,36 @@ namespace graphene { namespace app {
          return plugin->get_royalties_collected_by_token(aid, start, end);
       }
 
-      vector <asset> nft_history_api::get_royalties_by_series(const std::string asset_name_or_id,
-                                                              const fc::time_point_sec start,
-                                                              const fc::time_point_sec end) const {
+      vector <asset> nft_history_api::get_royalties_collected_by_series(const std::string asset_name_or_id,
+                                                                        const fc::time_point_sec start,
+                                                                        const fc::time_point_sec end) const {
          auto plugin = _app.get_plugin<graphene::nft_history::nft_history>("nft_history");
          FC_ASSERT( plugin );
 
          const asset_id_type& aid = database_api.get_asset_id_from_string(asset_name_or_id);
 
-         return plugin->get_royalties_by_series(aid, start, end);
+         return plugin->get_royalties_collected_by_series(aid, start, end);
+      }
+
+      vector <asset> nft_history_api::get_royalties_distributed_by_series(const std::string asset_name_or_id,
+                                                                          const fc::time_point_sec start,
+                                                                          const fc::time_point_sec end) const {
+         auto plugin = _app.get_plugin<graphene::nft_history::nft_history>("nft_history");
+         FC_ASSERT( plugin );
+
+         const asset_id_type& aid = database_api.get_asset_id_from_string(asset_name_or_id);
+
+         return plugin->get_royalties_distributed_by_series(aid, start, end);
+      }
+
+      vector <graphene::nft_history::nft_royalty_distributed_object> nft_history_api::get_royalties_distributed_details_by_series(
+         const std::string asset_name_or_id, const fc::time_point_sec start, const fc::time_point_sec end) const {
+         auto plugin = _app.get_plugin<graphene::nft_history::nft_history>("nft_history");
+         FC_ASSERT( plugin );
+
+         const asset_id_type& aid = database_api.get_asset_id_from_string(asset_name_or_id);
+
+         return plugin->get_royalties_distributed_details_by_series(aid, start, end);
       }
 
    } } // graphene::app
