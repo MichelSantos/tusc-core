@@ -1,0 +1,118 @@
+###
+# Multi-Stage Build
+###
+
+
+
+###
+# General Build environment
+###
+FROM ubuntu:20.04 AS general-build-env
+MAINTAINER TUSC
+
+ENV LANG=en_US.UTF-8
+ENV TZ=UTC
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+RUN \
+    apt-get update -y && \
+    apt-get install -y \
+      g++ \
+      autoconf \
+      cmake \
+      git \
+      libbz2-dev \
+      libcurl4-openssl-dev \
+      libssl-dev \
+      libncurses-dev \
+      libboost-thread-dev \
+      libboost-iostreams-dev \
+      libboost-date-time-dev \
+      libboost-system-dev \
+      libboost-filesystem-dev \
+      libboost-program-options-dev \
+      libboost-chrono-dev \
+      libboost-test-dev \
+      libboost-context-dev \
+      libboost-regex-dev \
+      libboost-coroutine-dev \
+      libtool \
+      doxygen \
+      ca-certificates \
+      locales \
+    && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN \
+    sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && \
+    locale-gen
+
+# Add the files and folders necessary for a build within the environment
+ADD . /tusc/
+
+# Configure the build folder
+RUN mkdir -p /tusc/docker-build-env/build
+WORKDIR /tusc/docker-build-env/build
+
+
+
+###
+# Build environment for Private Test Network (TestNet)
+###
+FROM general-build-env AS private-testnet-build-env
+MAINTAINER TUSC
+
+# Build
+#   Use as many CPU cores as are available
+#   unless doing so may exceed the available RAM
+#   under the presumption that each CPU core requires up to 3 GiB of RAM
+RUN \
+    cmake -DGRAPHENE_EGENESIS_JSON=/tusc/libraries/egenesis/tusc-upgrade-private.json -DCMAKE_BUILD_TYPE=Release ../.. && \
+    CPU_AVAILABLE=$( nproc ) && \
+    RAM_MiB=$( free -m | sed -n 2p | tr -s ' ' | cut -d\  -f2 || cut -d' ' -f2 ) && \
+    RAM_GiB=$(( RAM_MiB / 1000 )) && \
+    MAX_CPU_BY_RAM=$(( RAM_GiB / 3 )) && \
+    export JOBS=$(( MAX_CPU_BY_RAM > CPU_AVAILABLE ? CPU_AVAILABLE : MAX_CPU_BY_RAM )) && \
+    make -j${JOBS} cli_test chain_test app_test performance_test witness_node cli_wallet
+
+
+
+###
+# Private Test Network (TestNet)
+###
+FROM ubuntu:20.04 AS private-testnet
+MAINTAINER TUSC
+
+# Install dependencies required for running core applications and testing the blockchain
+RUN \
+    apt-get update -y && \
+    apt-get install -y \
+       libcurl4 \
+       libssl1.1 \
+       curl \
+       nano \
+   && \
+   apt-get clean && \
+   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Add the files for a private test network
+ADD docker/private-testnet/config.ini /tusc/witness_node_data_dir/
+ADD docker/private-testnet/api-access.json /tusc/witness_node_data_dir/
+
+# Add the block-producer/validator node
+COPY --from=private-testnet-build-env /tusc/docker-build-env/build/programs/witness_node/witness_node /tusc/
+
+# Add the command-line wallet interface (CLI)
+COPY --from=private-testnet-build-env /tusc/docker-build-env/build/programs/cli_wallet/cli_wallet /tusc/
+
+# Add different tests
+COPY --from=private-testnet-build-env /tusc/docker-build-env/build/tests/chain_test /tusc/
+COPY --from=private-testnet-build-env /tusc/docker-build-env/build/tests/cli_test /tusc/
+COPY --from=private-testnet-build-env /tusc/docker-build-env/build/tests/app_test /tusc/
+COPY --from=private-testnet-build-env /tusc/docker-build-env/build/tests/performance_test /tusc/
+
+# Configure the default working directory
+WORKDIR /tusc
+
+# Expose the RPC service to permit access by external client applications
+EXPOSE 8090
